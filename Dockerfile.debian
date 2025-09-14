@@ -1,0 +1,100 @@
+#######################################################################
+#   CONFIGURATION                                                     #
+#######################################################################
+
+ARG GOLANG_VERSION=1.25.1
+
+ARG DELVE_VERSION=1.24.2
+ARG GITHUBCLI_VERSION=2.79.0
+ARG GOTESTSUM_VERSION=1.13.0
+ARG KUBECTL_VERSION=1.34.1
+ARG RENOVATE_VERSION=41.113.3
+ARG ROVER_VERSION=0.35.0
+ARG TASKFILE_VERSION=3.44.1
+ARG WATCHEXEC_VERSION=2.3.2
+
+ARG DEBIAN_RELEASE=bookworm
+
+#######################################################################
+#   END OF CONFIGURATION                                              #
+#                                                                     #
+# Do not edit below this line unless you know what you are doing!     #
+#######################################################################
+
+FROM golang:${GOLANG_VERSION}-${DEBIAN_RELEASE}
+
+# Install shared dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    build-essential \
+    coreutils \
+    curl \
+    gcc \
+    gettext \
+    git \
+    jq \
+    linux-headers-amd64 \
+    npm \
+    unzip
+
+ONBUILD RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    update-ca-certificates
+
+COPY --chmod=0755 download.sh /usr/local/bin/download.sh
+
+# Set up Golang
+
+ENV GOCACHE=/var/cache/go-build
+ENV GOMODCACHE=/var/cache/go-mod
+
+ENV CGO_ENABLED=0
+ENV GOPROXY=https://go.pyck.cloud,direct
+
+# Set up NPM
+ENV NPM_CONFIG_CACHE=/var/cache/npm
+
+# Install watchexec
+ARG WATCHEXEC_VERSION
+RUN download.sh \
+    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-gnu.deb" \
+    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-gnu.deb.sha256" \
+    --install-pkg
+
+# Install delve, task, gotestsum
+ARG DELVE_VERSION
+ARG TASKFILE_VERSION
+ARG GOTESTSUM_VERSION
+RUN --mount=type=cache,id=go-cache,target=/var/cache/go-build \
+    --mount=type=cache,id=go-modcache,target=/var/cache/go-mod \
+    go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
+    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}" && \
+    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}"
+
+# Install rover
+ARG ROVER_VERSION
+RUN download.sh \
+    --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+    --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
+    --install-paths "/dist/rover" \
+    --install-to "/usr/local/bin/rover" \
+    --verbose
+
+# Install GitHub CLI
+ARG GITHUBCLI_VERSION
+RUN download.sh \
+    --url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_linux_amd64.deb" \
+    --shasum-url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_checksums.txt" \
+    --install-pkg
+
+# Install kubectl
+ARG KUBECTL_VERSION
+RUN download.sh \
+    --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+    --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
+    --install-to "/usr/local/bin/kubectl"
+
+# Install renovate
+ARG RENOVATE_VERSION
+RUN --mount=type=cache,id=npm-cacache,target=/var/cache/npm \
+    npm install -g "renovate@${RENOVATE_VERSION}"
