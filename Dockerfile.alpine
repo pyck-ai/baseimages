@@ -4,6 +4,7 @@
 
 ARG GOLANG_VERSION=1.25.1
 
+ARG BUN_VERSION=1.2.22
 ARG DELVE_VERSION=1.24.2
 ARG GITHUBCLI_VERSION=2.79.0
 ARG GOTESTSUM_VERSION=1.13.0
@@ -24,7 +25,6 @@ ARG ALPINE_REPOS=main,community
 #######################################################################
 
 FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION}
-
 
 # Set up Alpine Linux repositories
 ARG ALPINE_VERSION
@@ -53,66 +53,74 @@ RUN apk add --update --no-cache --no-progress \
     npm \
     unzip
 
+# Automatically update CA certificates on build of derived images
 ONBUILD RUN apk add --update --no-cache --no-progress \
     ca-certificates && \
     update-ca-certificates
 
-COPY --chmod=0755 download.sh /usr/local/bin/download.sh
-
 # Set up Golang
-
 ENV GOCACHE=/var/cache/go-build
 ENV GOMODCACHE=/var/cache/go-mod
-
 ENV CGO_ENABLED=0
 ENV GOPROXY=https://go.pyck.cloud,direct
 
 # Set up NPM
 ENV NPM_CONFIG_CACHE=/var/cache/npm
 
-# Install watchexec
-ARG WATCHEXEC_VERSION
-RUN download.sh \
-    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz" \
-    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz.sha256" \
-    --install-paths "watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl/watchexec" \
-    --install-to "/usr/local/bin/watchexec"
+# Install download.sh helper script
+COPY download.sh /download.sh
+
+# Install bun
+ARG BUN_VERSION
+RUN /download.sh \
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-musl.zip" \
+    --shasum-url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
+    --install-paths "bun-linux-x64-musl/bun" \
+    --install-to "/usr/local/bin/"
 
 # Install delve, task, gotestsum
 ARG DELVE_VERSION
-ARG TASKFILE_VERSION
 ARG GOTESTSUM_VERSION
+ARG TASKFILE_VERSION
 RUN --mount=type=cache,id=go-cache,target=/var/cache/go-build \
     --mount=type=cache,id=go-modcache,target=/var/cache/go-mod \
     go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
-    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}" && \
-    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}"
-
-# Install rover
-ARG ROVER_VERSION
-RUN download.sh \
-    --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
-    --install-paths "/dist/rover" \
-    --install-to "/usr/local/bin/rover" \
-    --verbose
+    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
+    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
 
 # Install GitHub CLI
 ARG GITHUBCLI_VERSION
-RUN download.sh \
+RUN /download.sh \
     --url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_linux_amd64.tar.gz" \
     --shasum-url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_checksums.txt" \
     --install-paths "/gh_${GITHUBCLI_VERSION}_linux_amd64/bin/gh" \
-    --install-to "/usr/local/bin/gh"
+    --install-to "/usr/local/bin/"
 
 # Install kubectl
 ARG KUBECTL_VERSION
-RUN download.sh \
+RUN /download.sh \
     --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
-    --install-to "/usr/local/bin/kubectl"
+    --install-to "/usr/local/bin/"
 
 # Install renovate
 ARG RENOVATE_VERSION
 RUN --mount=type=cache,id=npm-cacache,target=/var/cache/npm \
     npm install -g "renovate@${RENOVATE_VERSION}"
+
+# Install rover
+ARG ROVER_VERSION
+RUN /download.sh \
+    --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
+    --install-paths "/dist/rover" \
+    --install-to "/usr/local/bin/" \
+    --verbose
+
+# Install watchexec
+ARG WATCHEXEC_VERSION
+RUN /download.sh \
+    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz" \
+    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz.sha256" \
+    --install-paths "watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl/watchexec" \
+    --install-to "/usr/local/bin/"

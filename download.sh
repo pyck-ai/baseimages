@@ -69,14 +69,14 @@ EXAMPLES:
         --url https://example.com/tool-v1.2.3-linux-amd64.tar.gz \\
         --shasum-url https://example.com/tool-v1.2.3-SHA256SUMS \\
         --install-paths tool-v1.2.3-linux-amd64/tool \\
-        --install-to /usr/local/bin
+        --install-to /usr/local/bin/
 
     # Extract and install multiple specific files (comma-separated)
     $SCRIPT_NAME \\
         --url https://example.com/suite-v2.0.0-linux-amd64.tar.gz \\
         --shasum-url https://example.com/suite-v2.0.0-SHA256SUMS \\
         --install-paths suite-v2.0.0-linux-amd64/main,suite-v2.0.0-linux-amd64/helper \\
-        --install-to /usr/local/bin \\
+        --install-to /usr/local/bin/ \\
         --verbose
 
     # Extract and install multiple specific files (multiple --install-paths)
@@ -85,14 +85,14 @@ EXAMPLES:
         --shasum-url https://example.com/suite-v2.0.0-SHA256SUMS \\
         --install-paths suite-v2.0.0-linux-amd64/main \\
         --install-paths suite-v2.0.0-linux-amd64/helper \\
-        --install-to /usr/local/bin \\
+        --install-to /usr/local/bin/ \\
         --verbose
 
     # Auto-extract and install all files from archive
     $SCRIPT_NAME \\
         --url https://example.com/tools-v1.0.0-linux-amd64.tar.gz \\
         --shasum-url https://example.com/tools-v1.0.0-SHA256SUMS \\
-        --install-to /usr/local/bin
+        --install-to /usr/local/bin/
 
     # Download and install a .deb package directly
     $SCRIPT_NAME \\
@@ -111,7 +111,7 @@ EXAMPLES:
     $SCRIPT_NAME \\
         --url https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl \\
         --shasum-url https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl.sha256 \\
-        --install-to /usr/local/bin/kubectl
+        --install-to /usr/local/bin/
 
 EXIT CODES:
     0   Success
@@ -350,7 +350,7 @@ install_direct_binary() {
     fi
     
     # Copy the binary to destination
-    if ! cp "$binary_path" "$dest_path"; then
+    if ! install -C "$binary_path" "$dest_path"; then
         log "ERROR" "Failed to install binary to $dest_path"
         exit 5
     fi
@@ -496,8 +496,8 @@ install_binaries() {
             log "WARN" "File already exists, overwriting: $dest_path"
         fi
         
-        if ! cp "$source_path" "$dest_path"; then
-            log "ERROR" "Failed to copy $path to $dest_path"
+        if ! install -C "$source_path" "$dest_path"; then
+            log "ERROR" "Failed to install $path to $dest_path"
             exit 5
         fi
         
