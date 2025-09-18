@@ -6,20 +6,21 @@ on:
   schedule:
     # Run every night at 4 AM UTC
     - cron: '0 4 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
   actions: write
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_ORG: pyck-ai/baseimages
-  TAG: ${{ github.ref_name }}
-
 jobs:
   build:
     runs-on: self-hosted
     strategy:
+      fail-fast: false
       matrix:
         include:
           - dockerfile: Dockerfile.alpine
@@ -49,21 +50,10 @@ jobs:
     - name: Log in to the Container registry
       uses: docker/login-action@v3.5.0
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: ghcr.io
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        password: ${{ github.token }}
         logout: false
-
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ matrix.image }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=schedule,pattern={{date 'YYYYMMDD'}}
-          type=sha,prefix={{branch}}-
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -71,8 +61,9 @@ jobs:
         context: ${{ matrix.context }}
         file: ${{ matrix.dockerfile }}
         push: ${{ github.event_name != 'pull_request' }}
-        labels: ${{ steps.meta.outputs.labels }}
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ matrix.image }}:${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ matrix.image }}:${{ github.sha }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_ORG }}/${{ matrix.image }}:${{ github.ref == 'refs/heads/main' && 'latest' || github.sha }}
+          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.sha }}
+          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.ref == 'refs/heads/main' && 'latest' || github.sha }}
+        cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.image }}:buildcache
+        cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.image }}:buildcache,mode=max

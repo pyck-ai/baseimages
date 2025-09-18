@@ -2,10 +2,15 @@
 #   CONFIGURATION                                                     #
 #######################################################################
 
-ARG GOLANG_VERSION=1.25.1
+ARG ALPINE_VERSION=3.22
+ARG ALPINE_MIRRORS=https://mirror.netcologne.de/alpine,https://mirror.leaseweb.com/alpine
+ARG ALPINE_REPOS=main,community
+
+ARG GO_PROXY=https://go.pyck.cloud,direct
+ARG GO_VERSION=1.25.1
 
 ARG BUN_VERSION=1.2.22
-ARG DELVE_VERSION=1.24.2
+ARG DELVE_VERSION=1.25.2
 ARG GITHUBCLI_VERSION=2.79.0
 ARG GOTESTSUM_VERSION=1.13.0
 ARG KUBECTL_VERSION=1.34.1
@@ -14,17 +19,23 @@ ARG ROVER_VERSION=0.35.0
 ARG TASKFILE_VERSION=3.44.1
 ARG WATCHEXEC_VERSION=2.3.2
 
-ARG ALPINE_VERSION=3.22
-ARG ALPINE_MIRRORS=https://mirror.netcologne.de/alpine,https://mirror.leaseweb.com/alpine
-ARG ALPINE_REPOS=main,community
-
 #######################################################################
 #   END OF CONFIGURATION                                              #
 #                                                                     #
 # Do not edit below this line unless you know what you are doing!     #
 #######################################################################
 
-FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION}
+FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION}
+
+# Set up Golang
+ARG GO_PROXY
+ENV GOCACHE=/var/cache/go/
+ENV GOMODCACHE=/go/pkg/mod/
+ENV GOPROXY=${GO_PROXY}
+ENV CGO_ENABLED=0
+
+# Set up NPM
+ENV NPM_CONFIG_CACHE=/var/cache/npm/
 
 # Set up Alpine Linux repositories
 ARG ALPINE_VERSION
@@ -39,7 +50,8 @@ RUN <<EOF
 EOF
 
 # Install shared dependencies
-RUN apk add --update --no-cache --no-progress \
+RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
+    apk add --update --no-progress \
     bash \
     build-base \
     coreutils \
@@ -53,19 +65,10 @@ RUN apk add --update --no-cache --no-progress \
     npm \
     unzip
 
-# Automatically update CA certificates on build of derived images
-ONBUILD RUN apk add --update --no-cache --no-progress \
+ONBUILD RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
+    apk add --update --no-progress \
     ca-certificates && \
     update-ca-certificates
-
-# Set up Golang
-ENV GOCACHE=/var/cache/go-build
-ENV GOMODCACHE=/var/cache/go-mod
-ENV CGO_ENABLED=0
-ENV GOPROXY=https://go.pyck.cloud,direct
-
-# Set up NPM
-ENV NPM_CONFIG_CACHE=/var/cache/npm
 
 # Install download.sh helper script
 COPY download.sh /download.sh
@@ -82,8 +85,8 @@ RUN /download.sh \
 ARG DELVE_VERSION
 ARG GOTESTSUM_VERSION
 ARG TASKFILE_VERSION
-RUN --mount=type=cache,id=go-cache,target=/var/cache/go-build \
-    --mount=type=cache,id=go-modcache,target=/var/cache/go-mod \
+RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
+    --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
     go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
     go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
     go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
@@ -105,7 +108,7 @@ RUN /download.sh \
 
 # Install renovate
 ARG RENOVATE_VERSION
-RUN --mount=type=cache,id=npm-cacache,target=/var/cache/npm \
+RUN --mount=type=cache,id=npm-cache,target=/var/cache/npm \
     npm install -g "renovate@${RENOVATE_VERSION}"
 
 # Install rover

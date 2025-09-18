@@ -2,10 +2,13 @@
 #   CONFIGURATION                                                     #
 #######################################################################
 
-ARG GOLANG_VERSION=1.25.1
+ARG DEBIAN_RELEASE=trixie
+
+ARG GO_PROXY=https://go.pyck.cloud,direct
+ARG GO_VERSION=1.25.1
 
 ARG BUN_VERSION=1.2.22
-ARG DELVE_VERSION=1.24.2
+ARG DELVE_VERSION=1.25.2
 ARG GITHUBCLI_VERSION=2.79.0
 ARG GOTESTSUM_VERSION=1.13.0
 ARG KUBECTL_VERSION=1.34.1
@@ -14,43 +17,47 @@ ARG ROVER_VERSION=0.35.0
 ARG TASKFILE_VERSION=3.44.1
 ARG WATCHEXEC_VERSION=2.3.2
 
-ARG DEBIAN_RELEASE=bookworm
-
 #######################################################################
 #   END OF CONFIGURATION                                              #
 #                                                                     #
 # Do not edit below this line unless you know what you are doing!     #
 #######################################################################
 
-FROM golang:${GOLANG_VERSION}-${DEBIAN_RELEASE}
-
-# Install shared dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    build-essential \
-    coreutils \
-    curl \
-    gcc \
-    gettext \
-    git \
-    jq \
-    linux-headers-amd64 \
-    npm \
-    unzip
-
-# Automatically update CA certificates on build of derived images
-ONBUILD RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates && \
-    update-ca-certificates
+FROM golang:${GO_VERSION}-${DEBIAN_RELEASE}
 
 # Set up Golang
-ENV GOCACHE=/var/cache/go-build
-ENV GOMODCACHE=/var/cache/go-mod
+ARG GO_PROXY
+ENV GOCACHE=/var/cache/go/
+ENV GOMODCACHE=/go/pkg/mod/
+ENV GOPROXY=${GO_PROXY}
 ENV CGO_ENABLED=0
-ENV GOPROXY=https://go.pyck.cloud,direct
 
 # Set up NPM
-ENV NPM_CONFIG_CACHE=/var/cache/npm
+ENV NPM_CONFIG_CACHE=/var/cache/npm/
+
+# Install shared dependencies
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        build-essential \
+        coreutils \
+        curl \
+        gcc \
+        gettext \
+        git \
+        jq \
+        linux-headers-amd64 \
+        npm \
+        unzip
+
+ONBUILD RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
+            --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates && \
+        update-ca-certificates
 
 # Install download.sh helper script
 COPY download.sh /download.sh
@@ -67,8 +74,8 @@ RUN /download.sh \
 ARG DELVE_VERSION
 ARG GOTESTSUM_VERSION
 ARG TASKFILE_VERSION
-RUN --mount=type=cache,id=go-cache,target=/var/cache/go-build \
-    --mount=type=cache,id=go-modcache,target=/var/cache/go-mod \
+RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
+    --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
     go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
     go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
     go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
@@ -86,11 +93,11 @@ ARG KUBECTL_VERSION
 RUN /download.sh \
     --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
-    --install-to "/usr/local/bin/kubectl"
+    --install-to "/usr/local/bin/"
 
 # Install renovate
 ARG RENOVATE_VERSION
-RUN --mount=type=cache,id=npm-cacache,target=/var/cache/npm \
+RUN --mount=type=cache,id=npm-configcache,target=/var/cache/npm/ \
     npm install -g "renovate@${RENOVATE_VERSION}"
 
 # Install rover
@@ -99,7 +106,7 @@ RUN /download.sh \
     --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
     --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
     --install-paths "/dist/rover" \
-    --install-to "/usr/local/bin/rover" \
+    --install-to "/usr/local/bin/" \
     --verbose
 
 # Install watchexec
