@@ -1,0 +1,25 @@
+#######################################################################
+#   CONFIGURATION                                                     #
+#######################################################################
+
+ARG NGINX_VERSION=mainline
+ARG ALPINE_VERSION=
+
+#######################################################################
+#   END OF CONFIGURATION                                              #
+#                                                                     #
+# Do not edit below this line unless you know what you are doing!     #
+#######################################################################
+FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine${ALPINE_VERSION}-otel
+
+EXPOSE 8080
+
+USER root
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY nginx/otel.conf /etc/nginx/conf.d/otel.conf
+
+USER nginx
+WORKDIR /app/
+COPY nginx/index.html /app/
+

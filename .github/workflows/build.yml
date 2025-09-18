@@ -28,6 +28,9 @@ jobs:
           - dockerfile: Dockerfile.debian
             image: debian
             context: .
+          - dockerfile: Dockerfile.nginx
+            image: nginx
+            context: .
 
     steps:
     - name: Checkout repository
