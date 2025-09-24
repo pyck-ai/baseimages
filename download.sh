@@ -25,6 +25,8 @@ INSTALL_TO=""
 INSTALL_PACKAGE=false
 DEBUG=false
 DRY_RUN=false
+PLATFORM="${TARGETPLATFORM:-linux/amd64}"  # Default to linux/amd64 if not set
+declare -A PLATFORM_ARCH_MAP
 
 #
 # Display usage information
@@ -45,6 +47,8 @@ OPTIONAL:
                            (currently supports .deb packages via dpkg -i)
     --install-paths PATHS   Comma-separated list of paths inside archive to install
                             (can be specified multiple times; if not specified, all files will be installed)
+    --platform PLATFORM    Target platform (default: ${PLATFORM})
+    --platform-arch MAP    Map platform to architecture (format: platform=arch, can be used multiple times)
     --verbose, -v          Enable verbose output
     --dry-run              Show what would be done without executing
     --help, -h             Show this help message
@@ -63,6 +67,15 @@ EXAMPLES:
     $SCRIPT_NAME \\
         --url https://example.com/tool-v1.2.3-linux-amd64.tar.gz \\
         --shasum-url https://example.com/tool-v1.2.3-SHA256SUMS
+
+    # Download, verify, extract and install specific files with platform mapping
+    $SCRIPT_NAME \\
+        --url https://example.com/tool-v1.2.3-{arch}.tar.gz \\
+        --shasum-url https://example.com/tool-v1.2.3-{arch}-SHA256SUMS \\
+        --install-paths tool-v1.2.3-{arch}/tool \\
+        --install-to /usr/local/bin/ \\
+        --platform linux/amd64 \\
+        --platform-arch linux/amd64=x64
 
     # Download, verify, extract and install specific files
     $SCRIPT_NAME \\
@@ -604,6 +617,21 @@ parse_arguments() {
                 DEBUG=true
                 shift
                 ;;
+            --platform)
+                [[ -z "${2:-}" ]] && { log "ERROR" "--platform requires a value"; exit 1; }
+                PLATFORM="$2"
+                shift 2
+                ;;
+            --platform-arch)
+                [[ -z "${2:-}" ]] && { log "ERROR" "--platform-arch requires a value"; exit 1; }
+                if [[ "$2" =~ ^(.+)=(.+)$ ]]; then
+                    PLATFORM_ARCH_MAP["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+                else
+                    log "ERROR" "Invalid platform-arch format: $2 (expected: platform=arch)"
+                    exit 1
+                fi
+                shift 2
+                ;;
             --dry-run)
                 DRY_RUN=true
                 shift
@@ -639,6 +667,35 @@ main() {
     # Parse command line arguments
     parse_arguments "$@"
     
+    # Determine architecture from platform
+    local arch=""
+    if [[ -n "${PLATFORM_ARCH_MAP[$PLATFORM]:-}" ]]; then
+        arch="${PLATFORM_ARCH_MAP[$PLATFORM]}"
+    else
+        # Extract architecture part from platform (everything after the last /)
+        arch="${PLATFORM##*/}"
+    fi
+
+    local os="${PLATFORM%%/*}"
+
+    
+    # Perform {os} and {arch} replacement in all relevant parameters
+    URL="${URL//\{os\}/$os}"
+    URL="${URL//\{arch\}/$arch}"
+    SHASUM_URL="${SHASUM_URL//\{os\}/$os}"
+    SHASUM_URL="${SHASUM_URL//\{arch\}/$arch}"
+    INSTALL_TO="${INSTALL_TO//\{os\}/$os}"
+    INSTALL_TO="${INSTALL_TO//\{arch\}/$arch}"
+    
+    # Replace {arch} in install paths array
+    local updated_install_paths=()
+    for path in "${INSTALL_PATHS[@]}"; do
+        path="${path//\{os\}/$os}"
+        path="${path//\{arch\}/$arch}"
+        updated_install_paths+=("${path}")
+    done
+    INSTALL_PATHS=("${updated_install_paths[@]}")
+    
     # Check dependencies and validate arguments
     check_dependencies
     validate_arguments
@@ -646,12 +703,17 @@ main() {
     # Show configuration in DEBUG mode
     if [[ "$DEBUG" == true ]]; then
         log "DEBUG" "Configuration:"
-        log "DEBUG" "  Archive URL: $URL"
-        log "DEBUG" "  SHA256 URL:  $SHASUM_URL"
-        log "DEBUG" "  Install to: $INSTALL_TO"
-        log "DEBUG" "  Install package: $INSTALL_PACKAGE"
-        log "DEBUG" "  Install paths: ${INSTALL_PATHS[*]}"
         log "DEBUG" "  Dry run: $DRY_RUN"
+        log "DEBUG" "  Target: $PLATFORM"
+        log "DEBUG" "   - OS: $os"
+        log "DEBUG" "   - Arch: $arch"
+        log "DEBUG" "  URL:"
+        log "DEBUG" "   - Archive: $URL"
+        log "DEBUG" "   - SHA256: $SHASUM_URL"
+        log "DEBUG" "  Install:"
+        log "DEBUG" "   - Dest: $INSTALL_TO"
+        log "DEBUG" "   - Paths: ${INSTALL_PATHS[*]}"
+        log "DEBUG" "   - Package: $INSTALL_PACKAGE"
     fi
     
     # Set up temporary workspace

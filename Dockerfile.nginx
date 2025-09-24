@@ -12,6 +12,11 @@ ARG NGINX_VERSION=mainline
 #######################################################################
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine${ALPINE_VERSION}-otel
 
+# Set up architecture variables
+ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
 EXPOSE 8080
 
 USER root

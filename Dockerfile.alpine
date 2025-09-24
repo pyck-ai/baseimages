@@ -11,12 +11,12 @@ ARG GO_VERSION=1.25.1
 
 ARG BUN_VERSION=1.2.22
 ARG DELVE_VERSION=1.25.2
-ARG GITHUBCLI_VERSION=2.79.0
+ARG GITHUBCLI_VERSION=2.80.0
 ARG GOTESTSUM_VERSION=1.13.0
 ARG KUBECTL_VERSION=1.34.1
-ARG RENOVATE_VERSION=41.113.3
+ARG RENOVATE_VERSION=41.127.2
 ARG ROVER_VERSION=0.35.0
-ARG TASKFILE_VERSION=3.44.1
+ARG TASKFILE_VERSION=3.45.4
 ARG WATCHEXEC_VERSION=2.3.2
 
 #######################################################################
@@ -26,6 +26,7 @@ ARG WATCHEXEC_VERSION=2.3.2
 #######################################################################
 
 FROM golang:${GO_VERSION}-alpine${ALPINE_VERSION}
+ARG TARGETPLATFORM
 
 # Set up Golang
 ARG GO_PROXY
@@ -73,14 +74,6 @@ ONBUILD RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
 # Install download.sh helper script
 COPY download.sh /download.sh
 
-# Install bun
-ARG BUN_VERSION
-RUN /download.sh \
-    --url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-musl.zip" \
-    --shasum-url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
-    --install-paths "bun-linux-x64-musl/bun" \
-    --install-to "/usr/local/bin/"
-
 # Install delve, task, gotestsum
 ARG DELVE_VERSION
 ARG GOTESTSUM_VERSION
@@ -91,39 +84,56 @@ RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
     go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
     go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
 
-# Install GitHub CLI
-ARG GITHUBCLI_VERSION
-RUN /download.sh \
-    --url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_linux_amd64.tar.gz" \
-    --shasum-url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_checksums.txt" \
-    --install-paths "/gh_${GITHUBCLI_VERSION}_linux_amd64/bin/gh" \
-    --install-to "/usr/local/bin/"
-
-# Install kubectl
-ARG KUBECTL_VERSION
-RUN /download.sh \
-    --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-    --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" \
-    --install-to "/usr/local/bin/"
-
 # Install renovate
 ARG RENOVATE_VERSION
 RUN --mount=type=cache,id=npm-cache,target=/var/cache/npm \
     npm install -g "renovate@${RENOVATE_VERSION}"
 
-# Install rover
-ARG ROVER_VERSION
+# Install bun
+ARG BUN_VERSION
+RUN /download.sh -v \
+    --platform-arch "linux/amd64=x64" \
+    --platform-arch "linux/arm64=aarch64" \
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-{os}-{arch}-musl.zip" \
+    --shasum-url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
+    --install-paths "bun-linux-{arch}-musl/bun" \
+    --install-to "/usr/local/bin/"
+
+# Install GitHub CLI
+ARG GITHUBCLI_VERSION
 RUN /download.sh \
-    --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
-    --install-paths "/dist/rover" \
-    --install-to "/usr/local/bin/" \
-    --verbose
+    --url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_{os}_{arch}.tar.gz" \
+    --shasum-url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_checksums.txt" \
+    --install-paths "/gh_${GITHUBCLI_VERSION}_{os}_{arch}/bin/gh" \
+    --install-to "/usr/local/bin/"
+
+# Install kubectl
+ARG KUBECTL_VERSION
+RUN /download.sh \
+    --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl" \
+    --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl.sha256" \
+    --install-to "/usr/local/bin/"
+
+# Install rover
+#
+# NOTE: Rover releases do not contain builds for aarch64-musl, so this is currently disabled.
+#
+# ARG ROVER_VERSION
+# RUN /download.sh \
+#     --platform-arch "linux/amd64=x86_64" \
+#     --platform-arch "linux/arm64=aarch64" \
+#     --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-{arch}-unknown-{os}-musl.tar.gz" \
+#     --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
+#     --install-paths "/dist/rover" \
+#     --install-to "/usr/local/bin/" \
+#     --verbose
 
 # Install watchexec
 ARG WATCHEXEC_VERSION
 RUN /download.sh \
-    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz" \
-    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl.tar.xz.sha256" \
-    --install-paths "watchexec-${WATCHEXEC_VERSION}-x86_64-unknown-linux-musl/watchexec" \
+    --platform-arch "linux/amd64=x86_64" \
+    --platform-arch "linux/arm64=aarch64" \
+    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-musl.tar.xz" \
+    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-musl.tar.xz.sha256" \
+    --install-paths "watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-musl/watchexec" \
     --install-to "/usr/local/bin/"
