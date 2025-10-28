@@ -62,11 +62,22 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
         logout: false
 
+    - name: prepare build args
+      id: build-args
+      run: |
+        BUILD_ARGS="$(cat buildargs.conf | grep -v '^#' | grep -v '^\s*$')"
+        {
+          echo 'build-args<<EOF'
+          echo "$BUILD_ARGS"
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: ${{ matrix.context }}
         file: ${{ matrix.dockerfile }}
+        build-args: ${{ steps.build-args.outputs.build-args }}
         push: ${{ github.event_name != 'pull_request' }}
         platforms: ${{ steps.buildx.outputs.platforms }}
         tags: |-
