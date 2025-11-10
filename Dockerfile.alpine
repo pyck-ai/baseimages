@@ -64,6 +64,8 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
     linux-headers \
     musl \
     npm \
+    gawk \
+    rsync \
     unzip
 
 ONBUILD RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \

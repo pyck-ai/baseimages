@@ -49,9 +49,11 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
         gcc \
         gettext \
         git \
+        gawk \
         jq \
         linux-headers-${TARGETARCH} \
         npm \
+        rsync \
         unzip
 
 ONBUILD RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
