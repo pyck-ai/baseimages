@@ -11,6 +11,7 @@ ARG GO_VERSION=1.25.0
 
 ARG BUN_VERSION
 ARG DELVE_VERSION
+ARG NODE_VERSION
 ARG GITHUBCLI_VERSION
 ARG GOTESTSUM_VERSION
 ARG KUBECTL_VERSION
@@ -35,9 +36,6 @@ ENV GOMODCACHE=/go/pkg/mod/
 ENV GOPROXY=${GO_PROXY}
 ENV CGO_ENABLED=0
 
-# Set up NPM
-ENV NPM_CONFIG_CACHE=/var/cache/npm/
-
 # Set up Alpine Linux repositories
 ARG ALPINE_VERSION
 ARG ALPINE_MIRRORS
@@ -60,11 +58,10 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
     gcc \
     gettext-envsubst \
     git \
+    gawk \
     jq \
     linux-headers \
     musl \
-    npm \
-    gawk \
     rsync \
     unzip
 
@@ -86,10 +83,15 @@ RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
     go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
     go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
 
-# Install renovate
-ARG RENOVATE_VERSION
-RUN --mount=type=cache,id=npm-cache,target=/var/cache/npm \
-    npm install -g "renovate@${RENOVATE_VERSION}"
+# Install Node.js (musl variant from unofficial builds)
+ARG NODE_VERSION
+RUN /download.sh \
+    --platform-arch "linux/amd64=x64" \
+    --platform-arch "linux/arm64=arm64" \
+    --url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-{arch}-musl.tar.xz" \
+    --shasum-url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/SHASUMS256.txt" \
+    --install-paths "node-v${NODE_VERSION}-linux-{arch}-musl/bin/node" \
+    --install-to "/usr/local/bin/"
 
 # Install bun
 ARG BUN_VERSION
@@ -100,6 +102,13 @@ RUN /download.sh -v \
     --shasum-url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
     --install-paths "bun-linux-{arch}-musl/bun" \
     --install-to "/usr/local/bin/"
+
+# Add bun global bin to PATH
+ENV PATH="/root/.bun/bin:$PATH"
+
+# Install renovate
+ARG RENOVATE_VERSION
+RUN bun add -g "renovate@${RENOVATE_VERSION}"
 
 # Install GitHub CLI
 ARG GITHUBCLI_VERSION
