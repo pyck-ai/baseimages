@@ -28,6 +28,9 @@ jobs:
           - dockerfile: Dockerfile.debian
             image: debian
             context: .
+          - dockerfile: Dockerfile.flutter
+            image: flutter
+            context: .
           - dockerfile: Dockerfile.nginx
             image: nginx
             context: .

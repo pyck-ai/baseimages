@@ -1,0 +1,10 @@
+name: rfw_validator
+description: Remote Flutter Widgets validator tool
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  rfw: ^1.0.0

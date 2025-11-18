@@ -1,0 +1,111 @@
+version: '3'
+
+vars:
+  REGISTRY: ghcr.io/pyck-ai/baseimages
+  # Dynamically generate --set args from buildargs.conf
+  BAKE_ARGS:
+    sh: |
+      set -a && source buildargs.conf && set +a
+      cat buildargs.conf | grep -v '^#' | grep -v '^$' | sed 's/^/--set *.args./' | tr '\n' ' '
+
+dotenv:
+  - buildargs.conf
+
+tasks:
+  #######################################################################
+  #   BUILD TASKS (Docker Bake wrappers)                                #
+  #######################################################################
+
+  build:
+    desc: Build all base images using Docker Bake (local, current platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load
+
+  build:alpine:
+    desc: Build Alpine base image (local, current platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load alpine
+
+  build:debian:
+    desc: Build Debian base image (local, current platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load debian
+
+  build:flutter:
+    desc: Build Flutter image (local, current platform, automatically builds debian)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load flutter
+
+  build:nginx:
+    desc: Build Nginx base image (local, current platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load nginx
+
+  push:
+    desc: Build and push all images (multi-platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --push
+
+  push:alpine:
+    desc: Build and push Alpine image (multi-platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --push alpine
+
+  push:debian:
+    desc: Build and push Debian image (multi-platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --push debian
+
+  push:flutter:
+    desc: Build and push Flutter image (multi-platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --push flutter
+
+  push:nginx:
+    desc: Build and push Nginx image (multi-platform)
+    cmds:
+      - docker buildx bake {{.BAKE_ARGS}} --push nginx
+
+  clean:
+    desc: Remove all local base images
+    cmds:
+      - docker rmi {{.REGISTRY}}/alpine:latest || true
+      - docker rmi {{.REGISTRY}}/debian:latest || true
+      - docker rmi {{.REGISTRY}}/flutter:latest || true
+      - docker rmi {{.REGISTRY}}/nginx:latest || true
+
+  #######################################################################
+  #   TEST TASKS                                                        #
+  #######################################################################
+
+  test:flutter:generate-binary:
+    desc: Generate binary test file from text example
+    deps:
+      - build:flutter
+    cmds:
+      - |
+        docker run --rm \
+          -v {{.PWD}}/flutter:/workspace:z \
+          -w /opt/rfw-validator \
+          {{.REGISTRY}}/flutter:latest \
+          bash -c "dart run generate_binary.dart /workspace/example.dart /workspace/example.rfw"
+
+  test:flutter:
+    desc: Test Flutter image RFW validator with text and binary formats
+    deps:
+      - build:flutter
+      - test:flutter:generate-binary
+    cmds:
+      - echo "Testing text format (.rfwtxt)..."
+      - |
+        docker run --rm \
+          -v {{.PWD}}/flutter:/workspace:z \
+          {{.REGISTRY}}/flutter:latest \
+          validate-rfw example.dart
+      - echo ""
+      - echo "Testing binary format (.rfw)..."
+      - |
+        docker run --rm \
+          -v {{.PWD}}/flutter:/workspace:z \
+          {{.REGISTRY}}/flutter:latest \
+          validate-rfw example.rfw
