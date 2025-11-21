@@ -51,6 +51,7 @@ EOF
 # Install shared dependencies
 RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
     apk add --update --no-progress \
+    aws-cli \
     bash \
     build-base \
     coreutils \

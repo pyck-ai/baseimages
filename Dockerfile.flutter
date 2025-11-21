@@ -19,7 +19,9 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
     --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        awscli \
         file \
+        gosu \
         libgcc-s1 \
         libglu1-mesa \
         libstdc++6 \
@@ -32,7 +34,7 @@ RUN useradd -m -s /bin/bash -u 1000 flutter && \
     mkdir -p /opt/flutter /app && \
     chown -R flutter:flutter /opt/flutter /app
 
-# Switch to flutter user
+# Switch to flutter user for build steps
 USER flutter
 
 # Download and install Flutter SDK
@@ -62,6 +64,9 @@ COPY --chown=flutter:flutter flutter/ /opt/rfw-validator/
 RUN cd /opt/rfw-validator && \
     dart pub get && \
     chmod +x entrypoint.sh validate_rfw.dart generate_binary.dart
+
+# Switch back to root for entrypoint (entrypoint.sh will fix permissions and switch to flutter user)
+USER root
 
 # Set up entrypoint
 ENTRYPOINT ["/opt/rfw-validator/entrypoint.sh"]

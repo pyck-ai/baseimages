@@ -40,6 +40,7 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
     --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        awscli \
         bash \
         build-essential \
         coreutils \
