@@ -1,24 +1,39 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "schedule": ["before 4am on monday"],
-  "labels": ["dependencies", "renovate"],
+  "extends": [
+    "config:recommended"
+  ],
+  "schedule": [
+    "before 4am on monday"
+  ],
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
   "semanticCommits": "enabled",
   "commitMessagePrefix": "chore(deps):",
   "customManagers": [
     {
       "customType": "regex",
       "description": "Update ALPINE_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["ALPINE_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "ALPINE_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "alpine"
     },
     {
       "customType": "regex",
       "description": "Update DEBIAN_RELEASE in buildargs.conf (golang base image)",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["DEBIAN_RELEASE=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "DEBIAN_RELEASE=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "golang",
       "versioningTemplate": "regex:^(?<major>trixie|bookworm|bullseye)$"
@@ -26,104 +41,156 @@
     {
       "customType": "regex",
       "description": "Update NGINX_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["NGINX_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "NGINX_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "nginxinc/nginx-unprivileged"
     },
     {
       "customType": "regex",
       "description": "Update GO_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["GO_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "GO_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "golang-version",
       "depNameTemplate": "golang"
     },
     {
       "customType": "regex",
       "description": "Update NODE_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["NODE_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "NODE_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "node-version",
       "depNameTemplate": "node"
     },
     {
       "customType": "regex",
       "description": "Update BUN_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["BUN_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "BUN_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "oven-sh/bun"
     },
     {
       "customType": "regex",
       "description": "Update DELVE_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["DELVE_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "DELVE_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "go-delve/delve"
     },
     {
       "customType": "regex",
       "description": "Update FLUTTER_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["FLUTTER_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "FLUTTER_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "flutter/flutter"
     },
     {
       "customType": "regex",
       "description": "Update GITHUBCLI_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["GITHUBCLI_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "GITHUBCLI_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "cli/cli"
     },
     {
       "customType": "regex",
       "description": "Update GOTESTSUM_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["GOTESTSUM_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "GOTESTSUM_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "gotestyourself/gotestsum"
     },
     {
       "customType": "regex",
       "description": "Update KUBECTL_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["KUBECTL_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "KUBECTL_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "kubernetes/kubernetes"
     },
     {
       "customType": "regex",
       "description": "Update RENOVATE_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["RENOVATE_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "RENOVATE_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "npm",
       "depNameTemplate": "renovate"
     },
     {
       "customType": "regex",
       "description": "Update ROVER_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["ROVER_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "ROVER_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "apollographql/rover"
     },
     {
       "customType": "regex",
       "description": "Update TASKFILE_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["TASKFILE_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "TASKFILE_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "go-task/task"
     },
     {
       "customType": "regex",
       "description": "Update WATCHEXEC_VERSION in buildargs.conf",
-      "fileMatch": ["^buildargs\\.conf$"],
-      "matchStrings": ["WATCHEXEC_VERSION=(?<currentValue>.*?)\\n"],
+      "managerFilePatterns": [
+        "/^buildargs\\.conf$/"
+      ],
+      "matchStrings": [
+        "WATCHEXEC_VERSION=(?<currentValue>.*?)\\n"
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "watchexec/watchexec"
     }
@@ -131,15 +198,24 @@
   "packageRules": [
     {
       "description": "Group all non-major updates into one PR with automerge",
-      "matchPackagePatterns": ["*"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "groupName": "all non-major dependencies",
       "automerge": true,
-      "automergeType": "pr"
+      "automergeType": "pr",
+      "matchPackageNames": [
+        "*"
+      ]
     },
     {
       "description": "Keep major updates separate (manual review required)",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "automerge": false
     }
   ],
