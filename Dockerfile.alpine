@@ -11,10 +11,11 @@ ARG GO_VERSION=1.25.0
 
 ARG BUN_VERSION
 ARG DELVE_VERSION
-ARG NODE_VERSION
+ARG FLYCTL_VERSION
 ARG GITHUBCLI_VERSION
 ARG GOTESTSUM_VERSION
 ARG KUBECTL_VERSION
+ARG NODE_VERSION
 ARG RENOVATE_VERSION
 ARG ROVER_VERSION
 ARG TASKFILE_VERSION
@@ -74,26 +75,6 @@ ONBUILD RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/ \
 # Install download.sh helper script
 COPY download.sh /download.sh
 
-# Install delve, task, gotestsum
-ARG DELVE_VERSION
-ARG GOTESTSUM_VERSION
-ARG TASKFILE_VERSION
-RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
-    --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
-    go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
-    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
-    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
-
-# Install Node.js (musl variant from unofficial builds)
-ARG NODE_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x64" \
-    --platform-arch "linux/arm64=arm64" \
-    --url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-{arch}-musl.tar.xz" \
-    --shasum-url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/SHASUMS256.txt" \
-    --install-paths "node-v${NODE_VERSION}-linux-{arch}-musl/bin/node" \
-    --install-to "/usr/local/bin/"
-
 # Install bun
 ARG BUN_VERSION
 RUN /download.sh -v \
@@ -107,9 +88,25 @@ RUN /download.sh -v \
 # Add bun global bin to PATH
 ENV PATH="/root/.bun/bin:$PATH"
 
-# Install renovate
-ARG RENOVATE_VERSION
-RUN bun add -g "renovate@${RENOVATE_VERSION}"
+# Install delve, gotestsum, taskfile (Go tools)
+ARG DELVE_VERSION
+ARG GOTESTSUM_VERSION
+ARG TASKFILE_VERSION
+RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
+    --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
+    go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
+    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
+    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
+
+# Install flyctl (Fly.io CLI)
+ARG FLYCTL_VERSION
+RUN /download.sh \
+    --platform-arch "linux/amd64=x86_64" \
+    --platform-arch "linux/arm64=arm64" \
+    --url "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_Linux_{arch}.tar.gz" \
+    --shasum-url "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_checksums.txt" \
+    --install-paths "flyctl" \
+    --install-to "/usr/local/bin/"
 
 # Install GitHub CLI
 ARG GITHUBCLI_VERSION
@@ -125,6 +122,20 @@ RUN /download.sh \
     --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl" \
     --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl.sha256" \
     --install-to "/usr/local/bin/"
+
+# Install Node.js (musl variant from unofficial builds)
+ARG NODE_VERSION
+RUN /download.sh \
+    --platform-arch "linux/amd64=x64" \
+    --platform-arch "linux/arm64=arm64" \
+    --url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-{arch}-musl.tar.xz" \
+    --shasum-url "https://unofficial-builds.nodejs.org/download/release/v${NODE_VERSION}/SHASUMS256.txt" \
+    --install-paths "node-v${NODE_VERSION}-linux-{arch}-musl/bin/node" \
+    --install-to "/usr/local/bin/"
+
+# Install renovate (requires bun)
+ARG RENOVATE_VERSION
+RUN bun add -g "renovate@${RENOVATE_VERSION}"
 
 # Install rover
 #
