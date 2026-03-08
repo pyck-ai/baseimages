@@ -90,15 +90,13 @@ RUN /download.sh -v \
 # Add bun global bin to PATH
 ENV PATH="/root/.bun/bin:$PATH"
 
-# Install delve, gotestsum, taskfile (Go tools)
+# Install delve, gotestsum (Go tools)
 ARG DELVE_VERSION
 ARG GOTESTSUM_VERSION
-ARG TASKFILE_VERSION
 RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
     --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
     go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
-    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
-    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
+    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}"
 
 # Install flyctl (Fly.io CLI)
 ARG FLYCTL_VERSION
@@ -168,6 +166,14 @@ RUN bun add -g "renovate@${RENOVATE_VERSION}"
 #     --install-paths "/dist/rover" \
 #     --install-to "/usr/local/bin/" \
 #     --verbose
+
+# Install Task (task runner)
+ARG TASKFILE_VERSION
+RUN /download.sh \
+    --url "https://github.com/go-task/task/releases/download/v${TASKFILE_VERSION}/task_{os}_{arch}.tar.gz" \
+    --shasum-url "https://github.com/go-task/task/releases/download/v${TASKFILE_VERSION}/task_checksums.txt" \
+    --install-paths "task" \
+    --install-to "/usr/local/bin/"
 
 # Install watchexec
 ARG WATCHEXEC_VERSION
