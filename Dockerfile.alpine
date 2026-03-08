@@ -14,7 +14,9 @@ ARG DELVE_VERSION
 ARG FLYCTL_VERSION
 ARG GITHUBCLI_VERSION
 ARG GOTESTSUM_VERSION
+ARG HELM_VERSION
 ARG KUBECTL_VERSION
+ARG KUSTOMIZE_VERSION
 ARG NODE_VERSION
 ARG RENOVATE_VERSION
 ARG ROVER_VERSION
@@ -116,11 +118,27 @@ RUN /download.sh \
     --install-paths "/gh_${GITHUBCLI_VERSION}_{os}_{arch}/bin/gh" \
     --install-to "/usr/local/bin/"
 
+# Install Helm
+ARG HELM_VERSION
+RUN /download.sh \
+    --url "https://get.helm.sh/helm-v${HELM_VERSION}-{os}-{arch}.tar.gz" \
+    --shasum-url "https://get.helm.sh/helm-v${HELM_VERSION}-{os}-{arch}.tar.gz.sha256sum" \
+    --install-paths "{os}-{arch}/helm" \
+    --install-to "/usr/local/bin/"
+
 # Install kubectl
 ARG KUBECTL_VERSION
 RUN /download.sh \
     --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl" \
     --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl.sha256" \
+    --install-to "/usr/local/bin/"
+
+# Install Kustomize
+ARG KUSTOMIZE_VERSION
+RUN /download.sh \
+    --url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_{os}_{arch}.tar.gz" \
+    --shasum-url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/checksums.txt" \
+    --install-paths "kustomize" \
     --install-to "/usr/local/bin/"
 
 # Install Node.js (musl variant from unofficial builds)
