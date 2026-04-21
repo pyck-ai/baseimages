@@ -15,29 +15,13 @@ tasks:
   #######################################################################
 
   build:
-    desc: Build all base images using Docker Bake (local, current platform)
+    desc: "Build base images using Docker Bake (local). Args: TARGETS=alpine,debian ARCH=arm64"
+    vars:
+      ARCH:
+        sh: uname -m
+      TARGET_ARGS: '{{if .TARGETS}}{{range splitList "," .TARGETS}}"{{.}}" {{end}}{{end}}'
     cmds:
-      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load
-
-  build:alpine:
-    desc: Build Alpine base image (local, current platform)
-    cmds:
-      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load alpine
-
-  build:debian:
-    desc: Build Debian base image (local, current platform)
-    cmds:
-      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load debian
-
-  build:flutter:
-    desc: Build Flutter image (local, current platform, automatically builds debian)
-    cmds:
-      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load flutter
-
-  build:nginx:
-    desc: Build Nginx base image (local, current platform)
-    cmds:
-      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/$(uname -m) --load nginx
+      - docker buildx bake {{.BAKE_ARGS}} --set *.platform=linux/{{.ARCH}} --load {{.TARGET_ARGS}}
 
   #######################################################################
   #   TEST TASKS                                                        #
@@ -46,30 +30,33 @@ tasks:
   test:flutter:generate-binary:
     desc: Generate binary test file from text example
     deps:
-      - build:flutter
+      - task: build
+        vars:
+          TARGETS: flutter
     cmds:
       - |
         docker run --rm \
           -v {{.PWD}}/flutter:/app:z \
           -w /opt/rfw-validator \
           {{.REGISTRY}}/flutter:latest \
-          bash -c "dart run generate_binary.dart /app/example.dart /app/example.rfw"
+          dart run generate_binary.dart /app/example.dart /app/example.rfw
 
   test:flutter:
     desc: Test Flutter image RFW validator with text and binary formats
     deps:
-      - build:flutter
+      - task: build
+        vars:
+          TARGETS: flutter
       - test:flutter:generate-binary
     cmds:
-      - echo "Testing text format (.rfwtxt)..."
       - |
+        echo "Testing text format (.rfwtxt)..."
         docker run --rm \
           -v {{.PWD}}/flutter:/app:z \
           {{.REGISTRY}}/flutter:latest \
           validate-rfw example.dart
-      - echo ""
-      - echo "Testing binary format (.rfw)..."
       - |
+        echo "Testing binary format (.rfw)..."
         docker run --rm \
           -v {{.PWD}}/flutter:/app:z \
           {{.REGISTRY}}/flutter:latest \

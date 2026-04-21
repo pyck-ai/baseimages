@@ -4,22 +4,7 @@
 
 ARG DEBIAN_RELEASE=trixie
 
-ARG GO_PROXY
 ARG GO_VERSION=1.25.0
-
-ARG BUN_VERSION
-ARG DELVE_VERSION
-ARG FLYCTL_VERSION
-ARG GITHUBCLI_VERSION
-ARG GOTESTSUM_VERSION
-ARG HELM_VERSION
-ARG KUBECTL_VERSION
-ARG KUSTOMIZE_VERSION
-ARG NODE_VERSION
-ARG RENOVATE_VERSION
-ARG ROVER_VERSION
-ARG TASKFILE_VERSION
-ARG WATCHEXEC_VERSION
 
 #######################################################################
 #   END OF CONFIGURATION                                              #
@@ -32,36 +17,37 @@ ARG TARGETPLATFORM
 ARG TARGETARCH
 
 # Set up Golang
-ARG GO_PROXY
 ENV GOCACHE=/var/cache/go/
 ENV GOMODCACHE=/go/pkg/mod/
-ENV GOPROXY=${GO_PROXY}
+ENV GOPROXY=https://go.pyck.cloud,direct
 ENV CGO_ENABLED=0
 
 # Install shared dependencies
-RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
-    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        awscli \
-        bash \
-        build-essential \
-        coreutils \
-        curl \
-        gcc \
-        gettext \
-        git \
-        gawk \
-        jq \
-        linux-headers-${TARGETARCH} \
-        rsync \
-        unzip
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
+        awscli\
+        bash\
+        build-essential\
+        coreutils\
+        curl\
+        gcc\
+        gettext\
+        git\
+        gawk\
+        jq\
+        linux-headers-${TARGETARCH}\
+        ripgrep\
+        rsync\
+        unzip\
+        zstd
 
-ONBUILD RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
-            --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates && \
+ONBUILD RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+            --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
+        ca-certificates &&\
         update-ca-certificates
 
 # Install download.sh helper script
@@ -69,99 +55,151 @@ COPY download.sh /download.sh
 
 # Install bun
 ARG BUN_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x64" \
-    --platform-arch "linux/arm64=aarch64" \
-    --url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-{arch}.zip" \
-    --shasum-url "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
-    --install-paths "bun-linux-{arch}/bun" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'"
 
 # Add bun global bin to PATH
 ENV PATH="/root/.bun/bin:$PATH"
 
-# Install delve, gotestsum, taskfile (Go tools)
+# Install delve
 ARG DELVE_VERSION
-ARG GOTESTSUM_VERSION
-ARG TASKFILE_VERSION
-RUN --mount=type=cache,id=go-cache,target=/var/cache/go/ \
-    --mount=type=cache,id=go-modcache,target=/go/pkg/mod/ \
-    go install "github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}" && \
-    go install "gotest.tools/gotestsum@v${GOTESTSUM_VERSION}" && \
-    go install "github.com/go-task/task/v3/cmd/task@v${TASKFILE_VERSION}"
+RUN /download.sh\
+    --var "version=${DELVE_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/go-delve/delve/releases/download/v{version}/dlv_{version}_{os}_{arch}.tar.gz"\
+    --checksum-url "https://github.com/go-delve/delve/releases/download/v{version}/checksums.txt"\
+    --install-paths "dlv"\
+    --install-to "/usr/local/bin/"\
+    --verify "dlv version | grep -qF 'Version: {version}'"
 
 # Install flyctl (Fly.io CLI)
 ARG FLYCTL_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x86_64" \
-    --platform-arch "linux/arm64=arm64" \
-    --url "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_Linux_{arch}.tar.gz" \
-    --shasum-url "https://github.com/superfly/flyctl/releases/download/v${FLYCTL_VERSION}/flyctl_${FLYCTL_VERSION}_checksums.txt" \
-    --install-paths "flyctl" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${FLYCTL_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_Linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_checksums.txt"\
+    --install-paths "flyctl"\
+    --install-to "/usr/local/bin/"\
+    --verify "flyctl --version | grep -qF 'version {version}'"
 
 # Install GitHub CLI
 ARG GITHUBCLI_VERSION
-RUN /download.sh \
-    --url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_{os}_{arch}.tar.gz" \
-    --shasum-url "https://github.com/cli/cli/releases/download/v${GITHUBCLI_VERSION}/gh_${GITHUBCLI_VERSION}_checksums.txt" \
-    --install-paths "/gh_${GITHUBCLI_VERSION}_{os}_{arch}/bin/gh" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${GITHUBCLI_VERSION}"\
+    --url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_{os}_{arch}.tar.gz"\
+    --checksum-url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt"\
+    --install-paths "gh_{version}_{os}_{arch}/bin/gh"\
+    --install-to "/usr/local/bin/"\
+    --verify "gh --version | grep -qF 'version {version}'"
+
+# Install go-arch-lint
+ARG GOARCHLINT_VERSION
+RUN /download.sh\
+    --var "version=${GOARCHLINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/go-arch-lint_{version}_{os}_{arch}.tar.gz"\
+    --checksum-url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/checksums.txt"\
+    --install-paths "go-arch-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "go-arch-lint version --output-color=false | grep -qF 'version: {version}'"
+
+# Install golangci-lint
+ARG GOLANGCILINT_VERSION
+RUN /download.sh\
+    --var "version=${GOLANGCILINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-{os}-{arch}.tar.gz"\
+    --checksum-url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-checksums.txt"\
+    --install-paths "golangci-lint-{version}-{os}-{arch}/golangci-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "golangci-lint --version | grep -qF 'version {version}'"
+
+# Install gotestsum
+ARG GOTESTSUM_VERSION
+RUN /download.sh\
+    --var "version=${GOTESTSUM_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum-{version}-checksums.txt"\
+    --install-paths "gotestsum"\
+    --install-to "/usr/local/bin/"\
+    --verify "gotestsum --version | grep -qF 'version v{version}'"
 
 # Install Helm
 ARG HELM_VERSION
-RUN /download.sh \
-    --url "https://get.helm.sh/helm-v${HELM_VERSION}-{os}-{arch}.tar.gz" \
-    --shasum-url "https://get.helm.sh/helm-v${HELM_VERSION}-{os}-{arch}.tar.gz.sha256sum" \
-    --install-paths "{os}-{arch}/helm" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${HELM_VERSION}"\
+    --url "https://get.helm.sh/helm-v{version}-{os}-{arch}.tar.gz"\
+    --checksum-url "https://get.helm.sh/helm-v{version}-{os}-{arch}.tar.gz.sha256sum"\
+    --install-paths "{os}-{arch}/helm"\
+    --install-to "/usr/local/bin/"\
+    --verify "helm version | grep -qF 'Version:\"v{version}\"'"
 
 # Install kubectl
 ARG KUBECTL_VERSION
-RUN /download.sh \
-    --url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl" \
-    --shasum-url "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/{os}/{arch}/kubectl.sha256" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${KUBECTL_VERSION}"\
+    --url "https://dl.k8s.io/release/v{version}/bin/{os}/{arch}/kubectl"\
+    --checksum-url "https://dl.k8s.io/release/v{version}/bin/{os}/{arch}/kubectl.sha256"\
+    --install-to "/usr/local/bin/"\
+    --verify "kubectl version --client=true | grep -qF 'Client Version: v{version}'"
 
 # Install Kustomize
 ARG KUSTOMIZE_VERSION
-RUN /download.sh \
-    --url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_{os}_{arch}.tar.gz" \
-    --shasum-url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/checksums.txt" \
-    --install-paths "kustomize" \
-    --install-to "/usr/local/bin/"
-
-# Install Node.js (official builds)
-ARG NODE_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x64" \
-    --platform-arch "linux/arm64=arm64" \
-    --url "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-{os}-{arch}.tar.xz" \
-    --shasum-url "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
-    --install-paths "node-v${NODE_VERSION}-{os}-{arch}/bin/node" \
-    --install-to "/usr/local/bin/"
-
-# Install renovate (requires bun)
-ARG RENOVATE_VERSION
-RUN bun add -g "renovate@${RENOVATE_VERSION}"
+RUN /download.sh\
+    --var "version=${KUSTOMIZE_VERSION}"\
+    --url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/kustomize_v{version}_{os}_{arch}.tar.gz"\
+    --checksum-url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/checksums.txt"\
+    --install-paths "kustomize"\
+    --install-to "/usr/local/bin/"\
+    --verify "kustomize version | grep -qF 'v{version}'"
 
 # Install rover
 ARG ROVER_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x86_64" \
-    --platform-arch "linux/arm64=aarch64" \
-    --url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/rover-v${ROVER_VERSION}-{arch}-unknown-{os}-gnu.tar.gz" \
-    --shasum-url "https://github.com/apollographql/rover/releases/download/v${ROVER_VERSION}/sha256sums.txt" \
-    --install-paths "/dist/rover" \
-    --install-to "/usr/local/bin/" \
+RUN /download.sh\
+    --var "version=${ROVER_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/apollographql/rover/releases/download/v{version}/rover-v{version}-{arch}-unknown-{os}-gnu.tar.gz"\
+    --checksum-url "https://github.com/apollographql/rover/releases/download/v{version}/sha256sums.txt"\
+    --install-paths "dist/rover"\
+    --install-to "/usr/local/bin/"\
+    --verify "rover --version | grep -qF '{version}'"\
     --verbose
+
+# Install taskfile
+ARG TASKFILE_VERSION
+RUN /download.sh\
+    --var "version=${TASKFILE_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/go-task/task/releases/download/v{version}/task_{os}_{arch}.tar.gz"\
+    --checksum-url "https://github.com/go-task/task/releases/download/v{version}/task_checksums.txt"\
+    --install-paths "task"\
+    --install-to "/usr/local/bin/"\
+    --verify "task --version | grep -qF '{version}'"
 
 # Install watchexec
 ARG WATCHEXEC_VERSION
-RUN /download.sh \
-    --platform-arch "linux/amd64=x86_64" \
-    --platform-arch "linux/arm64=aarch64" \
-    --url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-gnu.tar.xz" \
-    --shasum-url "https://github.com/watchexec/watchexec/releases/download/v${WATCHEXEC_VERSION}/watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-gnu.tar.xz.sha256" \
-    --install-paths "watchexec-${WATCHEXEC_VERSION}-{arch}-unknown-{os}-gnu/watchexec" \
-    --install-to "/usr/local/bin/"
+RUN /download.sh\
+    --var "version=${WATCHEXEC_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-{os}-gnu.tar.xz"\
+    --checksum-url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-{os}-gnu.tar.xz.sha256"\
+    --install-paths "watchexec-{version}-{arch}-unknown-{os}-gnu/watchexec"\
+    --install-to "/usr/local/bin/"\
+    --verify "watchexec --version | grep -qF 'watchexec {version}'"

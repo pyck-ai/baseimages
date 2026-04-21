@@ -16,76 +16,71 @@ permissions:
   actions: write
 
 jobs:
+  discover:
+    runs-on: self-hosted
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: List bake targets
+        id: list
+        run: |
+          set -a && source buildargs.conf && set +a
+          targets=$(docker buildx bake --print 2>/dev/null \
+            | jq -c '[.target | keys[] | select(startswith("_") | not)]')
+          echo "targets=$targets" >> $GITHUB_OUTPUT
+
   build:
+    needs: discover
     runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - dockerfile: Dockerfile.alpine
-            image: alpine
-            context: .
-          - dockerfile: Dockerfile.debian
-            image: debian
-            context: .
-          - dockerfile: Dockerfile.flutter
-            image: flutter
-            context: .
-          - dockerfile: Dockerfile.nginx
-            image: nginx
-            context: .
+        target: ${{ fromJson(needs.discover.outputs.targets) }}
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-    - id: buildx
-      name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        platforms: |-
-          linux/amd64
-          linux/arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        with:
+          platforms: |-
+            linux/amd64
+            linux/arm64
 
-    - name: Log in to Docker Hub
-      if: github.event_name != 'pull_request'
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Log in to the Container registry
-      uses: docker/login-action@v3.7.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-        logout: false
+      - name: Log in to the Container registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          logout: false
 
-    - name: prepare build args
-      id: build-args
-      run: |
-        BUILD_ARGS="$(cat buildargs.conf | grep -v '^#' | grep -v '^\s*$')"
-        {
-          echo 'build-args<<EOF'
-          echo "$BUILD_ARGS"
-          echo 'EOF'
-        } >> $GITHUB_OUTPUT
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: ${{ matrix.context }}
-        file: ${{ matrix.dockerfile }}
-        build-args: ${{ steps.build-args.outputs.build-args }}
-        push: ${{ github.event_name != 'pull_request' }}
-        platforms: ${{ steps.buildx.outputs.platforms }}
-        tags: |-
-          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
-          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.sha }}
-          ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ github.ref == 'refs/heads/main' && 'latest' || github.sha }}
-        cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.image }}:buildcache
-        cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.image }}:buildcache,mode=max
+      - name: Build and push
+        run: |
+          set -a && source buildargs.conf && set +a
+          BAKE_ARGS=$(grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/--set *.args./' | tr '\n' ' ')
+          PUSH_FLAG=${{ github.event_name != 'pull_request' && '--push' || '' }}
+          docker buildx bake \
+            $BAKE_ARGS \
+            --set "*.platform=linux/amd64,linux/arm64" \
+            --set "${{ matrix.target }}.cache-from=type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.target }}:buildcache" \
+            --set "${{ matrix.target }}.cache-to=type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.target }}:buildcache,mode=max" \
+            $PUSH_FLAG \
+            ${{ matrix.target }}

@@ -15,23 +15,23 @@ ARG TARGETPLATFORM
 ARG TARGETARCH
 
 # Install Flutter dependencies
-RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked \
-    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        awscli \
-        file \
-        gosu \
-        libgcc-s1 \
-        libglu1-mesa \
-        libstdc++6 \
-        unzip \
-        xz-utils \
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends\
+        awscli\
+        file\
+        gosu\
+        libgcc-s1\
+        libglu1-mesa\
+        libstdc++6\
+        unzip\
+        xz-utils\
         zip
 
 # Create flutter user and set up directories
-RUN useradd -m -s /bin/bash -u 1000 flutter && \
-    mkdir -p /opt/flutter /app && \
+RUN useradd -m -s /bin/bash -u 1000 flutter &&\
+    mkdir -p /opt/flutter /app &&\
     chown -R flutter:flutter /opt/flutter /app
 
 # Switch to flutter user for build steps
@@ -52,17 +52,17 @@ COPY --chown=flutter:flutter --chmod=755 flutter/replace-dart-sdk.sh /tmp/replac
 RUN /tmp/replace-dart-sdk.sh
 
 # Pre-download Flutter dependencies and validate installation
-RUN flutter config --no-analytics && \
-    flutter precache && \
-    flutter doctor && \
+RUN flutter config --no-analytics &&\
+    flutter precache &&\
+    flutter doctor &&\
     dart --disable-analytics
 
 # Copy RFW validator tools
 COPY --chown=flutter:flutter flutter/ /opt/rfw-validator/
 
 # Install RFW validator dependencies
-RUN cd /opt/rfw-validator && \
-    dart pub get && \
+RUN cd /opt/rfw-validator &&\
+    dart pub get &&\
     chmod +x entrypoint.sh validate_rfw.dart generate_binary.dart
 
 # Switch back to root for entrypoint (entrypoint.sh will fix permissions and switch to flutter user)

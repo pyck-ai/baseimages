@@ -1,0 +1,40 @@
+FROM alpine AS base
+
+RUN apk add --no-cache ca-certificates tzdata &&\
+    update-ca-certificates
+
+# Create nonroot user (UID/GID 65532, matching Chainguard convention)
+RUN addgroup -g 65532 nonroot &&\
+    adduser -D -u 65532 -G nonroot nonroot &&\
+    grep -E '^(root|nonroot):' /etc/passwd > /etc/passwd.min &&\
+    grep -E '^(root|nonroot):' /etc/group  > /etc/group.min
+
+# /tmp requires sticky bit (1777) which WORKDIR cannot set, so pre-create it here
+RUN mkdir -m 1777 /tmp-staging
+
+
+
+FROM scratch
+
+# TLS certificates
+COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+# Timezone data
+COPY --from=base /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=base /usr/share/zoneinfo/UTC /etc/localtime
+
+# Minimal user/group database (root + nonroot only)
+COPY --from=base /etc/passwd.min /etc/passwd
+COPY --from=base /etc/group.min  /etc/group
+
+# Writable /tmp with sticky bit
+COPY --from=base /tmp-staging /tmp
+
+# Home directories
+WORKDIR /root
+COPY --chown=65532:65532 --from=base /home/nonroot /home/nonroot
+
+USER nonroot
+WORKDIR /home/nonroot
+ENV HOME=/home/nonroot

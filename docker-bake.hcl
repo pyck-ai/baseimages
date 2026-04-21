@@ -25,6 +25,8 @@ variable "ALPINE_VERSION" {}
 variable "DEBIAN_RELEASE" {}
 variable "FLUTTER_VERSION" {}
 variable "NGINX_VERSION" {}
+variable "CLAUDE_VERSION" {}
+variable "RENOVATE_VERSION" {}
 
 #######################################################################
 #   GROUPS                                                            #
@@ -32,14 +34,19 @@ variable "NGINX_VERSION" {}
 
 # Default group: build all images
 group "default" {
-  targets = ["alpine", "debian", "flutter", "nginx"]
+  targets = ["alpine", "debian", "flutter", "nginx", "static", "claude", "renovate"]
 }
 
 #######################################################################
 #   TARGETS                                                           #
 #######################################################################
 
+target "_common" {
+  pull = true
+}
+
 target "alpine" {
+  inherits = ["_common"]
   dockerfile = "Dockerfile.alpine"
   tags = [
     "${REGISTRY}/alpine:latest",
@@ -49,6 +56,7 @@ target "alpine" {
 }
 
 target "debian" {
+  inherits = ["_common"]
   dockerfile = "Dockerfile.debian"
   tags = [
     "${REGISTRY}/debian:latest",
@@ -58,6 +66,8 @@ target "debian" {
 }
 
 target "flutter" {
+  inherits = ["_common"]
+  pull = false
   dockerfile = "Dockerfile.flutter"
   # Use debian target as base - automatic dependency resolution
   contexts = {
@@ -70,7 +80,47 @@ target "flutter" {
   platforms = ["linux/amd64", "linux/arm64"]
 }
 
+target "claude" {
+  inherits = ["_common"]
+  pull = false
+  dockerfile = "Dockerfile.claude"
+  # Use debian target as base - automatic dependency resolution
+  contexts = {
+    "ghcr.io/pyck-ai/baseimages/alpine:latest" = "target:alpine"
+  }
+  tags = [
+    "${REGISTRY}/claude:latest",
+    "${REGISTRY}/claude:${CLAUDE_VERSION}"
+  ]
+  platforms = ["linux/amd64", "linux/arm64"]
+}
+
+target "renovate" {
+  inherits = ["_common"]
+  pull = false
+  dockerfile = "Dockerfile.renovate"
+  # Use debian target as base - automatic dependency resolution
+  contexts = {
+    "ghcr.io/pyck-ai/baseimages/alpine:latest" = "target:alpine"
+  }
+  tags = [
+    "${REGISTRY}/renovate:latest",
+    "${REGISTRY}/renovate:${RENOVATE_VERSION}"
+  ]
+  platforms = ["linux/amd64", "linux/arm64"]
+}
+
+target "static" {
+  inherits = ["_common"]
+  dockerfile = "Dockerfile.static"
+  tags = [
+    "${REGISTRY}/static:latest"
+  ]
+  platforms = ["linux/amd64", "linux/arm64"]
+}
+
 target "nginx" {
+  inherits = ["_common"]
   dockerfile = "Dockerfile.nginx"
   tags = [
     "${REGISTRY}/nginx:latest",
