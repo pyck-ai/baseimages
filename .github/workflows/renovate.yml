@@ -1,0 +1,56 @@
+name: renovate
+run-name: Renovate
+
+# Run hourly so dependency updates are picked up quickly.
+# issues: edited fires when a Dependency Dashboard checkbox is ticked,
+# allowing on-demand runs directly from the issue without waiting for the hour.
+# cancel-in-progress is false: never cancel a running Renovate job to avoid partial state.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - buildargs.conf
+  issues:
+    types: [edited]
+
+# Issue-triggered and manual runs use cancel-in-progress: true so rapid checkbox
+# clicks (or re-dispatches) cancel the queued run and only the last one executes.
+# Scheduled runs keep cancel-in-progress: false to always complete.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+permissions:
+  contents: write # push version bumps
+  issues: write # manage the Dependency Dashboard issue
+  pull-requests: write # open/update/close bump PRs
+  statuses: write # set commit status checks on PRs
+
+env:
+  RENOVATE_CONFIG_FILE: .github/renovate.json5
+
+jobs:
+  renovate:
+    # For issue edits, only run when the Dependency Dashboard is the one being edited.
+    if: github.event_name != 'issues' || contains(github.event.issue.title, 'Dependency Dashboard')
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Fail fast if the config file is missing rather than letting Renovate proceed with defaults.
+      - name: Check Renovate config exists
+        run: test -f "$RENOVATE_CONFIG_FILE" || { echo "Missing $RENOVATE_CONFIG_FILE"; exit 1; }
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@83ec54fee49ab67d9cd201084c1ff325b4b462e4 # v46.1.10
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_AUTODISCOVER: 'false'
+          RENOVATE_ONBOARDING: 'false'
+          RENOVATE_CONFIG_FILE: ${{ env.RENOVATE_CONFIG_FILE }}
+          LOG_LEVEL: 'debug'

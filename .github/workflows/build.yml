@@ -1,11 +1,17 @@
-name: Build Docker Images
+name: build
+run-name: Build and push Docker images
 
+# Triggers: every push, nightly at 4 AM UTC, and after Renovate updates dependencies.
 on:
   push:
   schedule:
-    # Run every night at 4 AM UTC
     - cron: '0 4 * * *'
+  workflow_run:
+    # Re-build immediately after Renovate merges a dependency bump.
+    workflows: ["renovate"]
+    types: ["completed"]
 
+# Cancel any in-progress build for the same ref when a newer one is triggered.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,6 +22,8 @@ permissions:
   actions: write
 
 jobs:
+  # Parse docker-bake.hcl to produce the list of build targets dynamically,
+  # so adding a new Dockerfile doesn't require updating this workflow.
   discover:
     runs-on: self-hosted
     outputs:
@@ -35,6 +43,7 @@ jobs:
             | jq -c '[.target | keys[] | select(startswith("_") | not)]')
           echo "targets=$targets" >> $GITHUB_OUTPUT
 
+  # Build and push each target in parallel. Images are only pushed on non-PR events.
   build:
     needs: discover
     runs-on: self-hosted
@@ -75,6 +84,7 @@ jobs:
       - name: Build and push
         run: |
           set -a && source buildargs.conf && set +a
+          # Pass every non-comment line from buildargs.conf as a --set *.args.KEY=VALUE flag.
           BAKE_ARGS=$(grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/--set *.args./' | tr '\n' ' ')
           PUSH_FLAG=${{ github.event_name != 'pull_request' && '--push' || '' }}
           docker buildx bake \

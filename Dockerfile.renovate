@@ -1,6 +1,0 @@
-FROM ghcr.io/pyck-ai/baseimages/alpine:latest
-
-# Install renovate (requires bun)
-ARG RENOVATE_VERSION
-RUN bun add -g "renovate@${RENOVATE_VERSION}"
-

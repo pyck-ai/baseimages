@@ -26,7 +26,6 @@ variable "DEBIAN_RELEASE" {}
 variable "FLUTTER_VERSION" {}
 variable "NGINX_VERSION" {}
 variable "CLAUDE_VERSION" {}
-variable "RENOVATE_VERSION" {}
 
 #######################################################################
 #   GROUPS                                                            #
@@ -34,7 +33,7 @@ variable "RENOVATE_VERSION" {}
 
 # Default group: build all images
 group "default" {
-  targets = ["alpine", "debian", "flutter", "nginx", "static", "claude", "renovate"]
+  targets = ["alpine", "debian", "flutter", "nginx", "static", "claude"]
 }
 
 #######################################################################
@@ -91,21 +90,6 @@ target "claude" {
   tags = [
     "${REGISTRY}/claude:latest",
     "${REGISTRY}/claude:${CLAUDE_VERSION}"
-  ]
-  platforms = ["linux/amd64", "linux/arm64"]
-}
-
-target "renovate" {
-  inherits = ["_common"]
-  pull = false
-  dockerfile = "Dockerfile.renovate"
-  # Use debian target as base - automatic dependency resolution
-  contexts = {
-    "ghcr.io/pyck-ai/baseimages/alpine:latest" = "target:alpine"
-  }
-  tags = [
-    "${REGISTRY}/renovate:latest",
-    "${REGISTRY}/renovate:${RENOVATE_VERSION}"
   ]
   platforms = ["linux/amd64", "linux/arm64"]
 }

@@ -1,0 +1,72 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		"config:recommended"
+	],
+	"enabledManagers": [
+		"github-actions",
+		"custom.regex"
+	],
+	"automergeSchedule": [
+		"after 9am and before 3pm every weekday"
+	],
+	"automergeStrategy": "fast-forward",
+	"minimumReleaseAge": "3 days",
+	"prConcurrentLimit": 5,
+	"prCreation": "not-pending",
+	"labels": [
+		"dependencies",
+		"renovate"
+	],
+	"semanticCommits": "disabled",
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Update versions in buildargs.conf using inline comments",
+			"managerFilePatterns": [
+				"/^buildargs\\.conf$/"
+			],
+			"matchStrings": [
+				"# renovate: datasource=(?<datasource>[a-z][a-z.-]+) depName=(?<depName>[^\\s]+)(?: extractVersion=(?<extractVersion>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+=(?<currentValue>.+)"
+			]
+		}
+	],
+	"customDatasources": {
+		"anthropic-claude": {
+			"defaultRegistryUrlTemplate": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest",
+			"format": "plain"
+		}
+	},
+	"packageRules": [
+		{
+			"description": "Automerge everything except major updates",
+			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+			"automerge": true
+		},
+		{
+			"description": "Major updates require manual approval",
+			"matchUpdateTypes": ["major"],
+			"automerge": false
+		},
+		{
+			"description": "Group all minor and patch updates into one PR",
+			"matchUpdateTypes": ["minor", "patch"],
+			"groupName": "all minor and patch updates"
+		},
+		{
+			"description": "Keep nginx separate (alpine releases lag behind golang)",
+			"matchPackageNames": ["nginxinc/nginx-unprivileged"],
+			"groupName": "nginx"
+		},
+		{
+			"description": "Keep golang versions separate",
+			"matchPackageNames": ["golang"],
+			"matchManagers": ["custom.regex"],
+			"groupName": "golang base images"
+		}
+	],
+	"vulnerabilityAlerts": {
+		"enabled": false
+	},
+	"osvVulnerabilityAlerts": true
+}
