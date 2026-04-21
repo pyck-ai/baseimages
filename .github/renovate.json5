@@ -1,37 +1,51 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
 	"extends": [
+		// Renovate's recommended defaults: grouping, automerge, ignore patterns, etc.
 		"config:recommended"
 	],
+	// Only manage GitHub Actions pins and the custom regex manager for buildargs.conf.
 	"enabledManagers": [
 		"github-actions",
 		"custom.regex"
 	],
+	// Automerge only during business hours to avoid unattended merges at night or on weekends.
 	"automergeSchedule": [
 		"after 9am and before 3pm every weekday"
 	],
+	// Fast-forward keeps the git history linear; no merge commits from Renovate.
 	"automergeStrategy": "fast-forward",
+	// Wait 3 days before opening a PR so yanked or broken releases have time to be caught.
 	"minimumReleaseAge": "3 days",
+	// Cap open Renovate PRs to avoid flooding the PR queue.
 	"prConcurrentLimit": 5,
+	// Don't open a PR while the stability timer (minimumReleaseAge) is still running.
 	"prCreation": "not-pending",
 	"labels": [
-		"dependencies",
 		"renovate"
 	],
+	// Plain commit messages; semantic commit prefixes add noise without benefit here.
 	"semanticCommits": "disabled",
 	"customManagers": [
 		{
+			// Parses inline `# renovate:` comments in buildargs.conf to track versions that
+			// aren't in a standard lockfile. Each variable gets its own datasource/depName.
 			"customType": "regex",
 			"description": "Update versions in buildargs.conf using inline comments",
 			"managerFilePatterns": [
 				"/^buildargs\\.conf$/"
 			],
+			// Captures: datasource, depName, optional extractVersion, optional versioning,
+			// and the current value from the variable assignment on the next line.
+			// datasource allows dots (e.g. custom.anthropic-claude).
 			"matchStrings": [
 				"# renovate: datasource=(?<datasource>[a-z][a-z.-]+) depName=(?<depName>[^\\s]+)(?: extractVersion=(?<extractVersion>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+=(?<currentValue>.+)"
 			]
 		}
 	],
 	"customDatasources": {
+		// Fetches the latest Claude Code version from the official GCS distribution endpoint.
+		// The endpoint returns a plain-text version string (e.g. "2.1.116"), one per line.
 		"anthropic-claude": {
 			"defaultRegistryUrlTemplate": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/latest",
 			"format": "plain"
@@ -39,6 +53,8 @@
 	},
 	"packageRules": [
 		{
+			// Automerge non-breaking updates; major updates stay on the Dependency Dashboard
+			// for manual review since they may require code changes.
 			"description": "Automerge everything except major updates",
 			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
 			"automerge": true
@@ -49,24 +65,32 @@
 			"automerge": false
 		},
 		{
+			// Batch all minor/patch updates into one PR to reduce noise.
+			// nginx and golang base images are excluded below and get their own PRs.
 			"description": "Group all minor and patch updates into one PR",
 			"matchUpdateTypes": ["minor", "patch"],
 			"groupName": "all minor and patch updates"
 		},
 		{
+			// nginx releases lag behind golang Alpine tags, so keeping it separate prevents
+			// a single blocked nginx update from holding up all other dependency bumps.
 			"description": "Keep nginx separate (alpine releases lag behind golang)",
 			"matchPackageNames": ["nginxinc/nginx-unprivileged"],
 			"groupName": "nginx"
 		},
 		{
+			// golang base image updates (GO_VERSION + ALPINE_VERSION) are grouped together
+			// because they are typically bumped in lockstep when a new Go release ships.
 			"description": "Keep golang versions separate",
 			"matchPackageNames": ["golang"],
 			"matchManagers": ["custom.regex"],
 			"groupName": "golang base images"
 		}
 	],
+	// GitHub's built-in vulnerability alerts are redundant when OSV scanning is on.
 	"vulnerabilityAlerts": {
 		"enabled": false
 	},
+	// Use the OSV database for vulnerability scanning — broader coverage than GitHub's alerts.
 	"osvVulnerabilityAlerts": true
 }
