@@ -72,6 +72,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Load build args
+        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -116,6 +119,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Load build args
+        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -159,6 +165,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Load build args
+        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -201,6 +210,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Load build args
+        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
