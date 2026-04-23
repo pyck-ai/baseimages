@@ -4,6 +4,8 @@
 
 README files in this repository document what each Docker image contains. Keep them accurate and up to date.
 
+**After every change** — regardless of how small — check whether any README is affected and update it before finishing. This is a required final step, not optional cleanup.
+
 ### Rules
 
 **When a Dockerfile changes**, update the README in that image's directory:

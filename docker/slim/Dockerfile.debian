@@ -21,12 +21,20 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
         gettext\
         git\
         gawk\
+        gnupg\
         jq\
         linux-headers-${TARGETARCH}\
+        make\
+        openssh-client\
+        patch\
         ripgrep\
         rsync\
+        tar\
         tzdata\
         unzip\
+        wget\
+        xz-utils\
+        zip\
         zstd
 
 RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime &&\

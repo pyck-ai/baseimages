@@ -33,16 +33,24 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
         gcompat\
         gettext-envsubst\
         git\
+        gnupg\
         jq\
         libgcc\
         libstdc++\
         linux-headers\
+        make\
         musl-dev\
         musl\
+        openssh-client\
+        patch\
         ripgrep\
         rsync\
+        tar\
         tzdata\
         unzip\
+        wget\
+        xz\
+        zip\
         zstd
 
 RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime

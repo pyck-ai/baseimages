@@ -46,12 +46,20 @@ Both variants provide the same set of tools and conventions so downstream images
 | gcompat (glibc shim) | `gcompat`, `libgcc`, `libstdc++` | _(built in)_ |
 | gettext / envsubst | `gettext-envsubst` | `gettext` |
 | git | `git` | `git` |
+| GnuPG | `gnupg` | `gnupg` |
 | jq | `jq` | `jq` |
 | Linux headers | `linux-headers` | `linux-headers-<arch>` |
+| make | `make` | `make` |
+| OpenSSH client | `openssh-client` | `openssh-client` |
+| patch | `patch` | `patch` |
 | ripgrep | `ripgrep` | `ripgrep` |
 | rsync | `rsync` | `rsync` |
+| tar | `tar` | `tar` |
 | tzdata | `tzdata` | `tzdata` |
 | unzip | `unzip` | `unzip` |
+| wget | `wget` | `wget` |
+| xz | `xz` | `xz-utils` |
+| zip | `zip` | `zip` |
 | zstd | `zstd` | `zstd` |
 
 ### Third-party tools
