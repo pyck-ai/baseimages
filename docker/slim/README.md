@@ -42,6 +42,7 @@ Both variants provide the same set of tools and conventions so downstream images
 | CA certificates | `ca-certificates` | `ca-certificates` |
 | Core utils | `coreutils` | `coreutils` |
 | curl | `curl` | `curl` |
+| file | `file` | `file` |
 | gawk | `gawk` | `gawk` |
 | gcompat (glibc shim) | `gcompat`, `libgcc`, `libstdc++` | _(built in)_ |
 | gettext / envsubst | `gettext-envsubst` | `gettext` |
@@ -52,6 +53,7 @@ Both variants provide the same set of tools and conventions so downstream images
 | make | `make` | `make` |
 | OpenSSH client | `openssh-client` | `openssh-client` |
 | patch | `patch` | `patch` |
+| rclone | `rclone` | `rclone` |
 | ripgrep | `ripgrep` | `ripgrep` |
 | rsync | `rsync` | `rsync` |
 | tar | `tar` | `tar` |

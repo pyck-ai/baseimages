@@ -20,6 +20,7 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
         gcc\
         gettext\
         git\
+        file\
         gawk\
         gnupg\
         jq\
@@ -27,6 +28,7 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
         make\
         openssh-client\
         patch\
+        rclone\
         ripgrep\
         rsync\
         tar\

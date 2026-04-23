@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1
+
+ARG PYTHON_VERSION=3
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM debian AS uv
+ARG TARGETPLATFORM TARGETARCH UV_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${UV_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/astral-sh/uv/releases/download/{version}/uv-{arch}-unknown-linux-gnu.tar.gz"\
+    --checksum-url "https://github.com/astral-sh/uv/releases/download/{version}/uv-{arch}-unknown-linux-gnu.tar.gz.sha256"\
+    --install-paths "uv-{arch}-unknown-linux-gnu/uv"\
+    --install-to "/usr/local/bin/"\
+    --verify "uv --version | grep -qF '{version}'"
+
+FROM debian AS ruff
+ARG TARGETPLATFORM TARGETARCH RUFF_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${RUFF_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/astral-sh/ruff/releases/download/{version}/ruff-{arch}-unknown-linux-gnu.tar.gz"\
+    --checksum-url "https://github.com/astral-sh/ruff/releases/download/{version}/ruff-{arch}-unknown-linux-gnu.tar.gz.sha256"\
+    --install-paths "ruff-{arch}-unknown-linux-gnu/ruff"\
+    --install-to "/usr/local/bin/"\
+    --verify "ruff --version | grep -qF '{version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM debian
+
+ARG PYTHON_VERSION
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+ENV UV_PYTHON_INSTALL_DIR=/usr/local/python
+ENV UV_PYTHON_PREFERENCE=only-managed
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+USER 0
+COPY --from=uv /usr/local/bin/uv /usr/local/bin/
+RUN ln -s uv /usr/local/bin/uvx
+
+RUN --mount=type=cache,id=uv-python,target=/var/cache/uv,sharing=shared\
+    UV_CACHE_DIR=/var/cache/uv uv python install ${PYTHON_VERSION} &&\
+    python_bin="$(uv python find ${PYTHON_VERSION})" &&\
+    python_dir="${python_bin%/*}" &&\
+    ln -sf "${python_dir}/python${PYTHON_VERSION}" /usr/local/bin/python${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/python${PYTHON_VERSION} /usr/local/bin/python3 &&\
+    ln -sf /usr/local/bin/python3 /usr/local/bin/python &&\
+    ln -sf "${python_dir}/pip${PYTHON_VERSION}" /usr/local/bin/pip${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/pip${PYTHON_VERSION} /usr/local/bin/pip3 &&\
+    ln -sf /usr/local/bin/pip3 /usr/local/bin/pip &&\
+    ln -sf "${python_dir}/pydoc${PYTHON_VERSION}" /usr/local/bin/pydoc${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/pydoc${PYTHON_VERSION} /usr/local/bin/pydoc3 &&\
+    ln -sf /usr/local/bin/pydoc3 /usr/local/bin/pydoc
+
+COPY --from=ruff /usr/local/bin/ruff /usr/local/bin/
+
+WORKDIR /app

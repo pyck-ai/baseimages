@@ -5,19 +5,6 @@ FROM golang-alpine
 ARG TARGETPLATFORM TARGETARCH
 USER 0
 
-# Flutter runtime dependency — glu is not in the alpine base.
-RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
-    apk add --update --no-progress glu
-
-# Flutter SDK. The RFW validator app (/opt/rfw-validator) and its entrypoint
-# (validate-rfw) are intentionally excluded — only the SDK is needed here.
-# Ownership is assigned to nonroot so flutter can write to its cache at runtime.
-COPY --from=flutter /opt/flutter /opt/flutter
-RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;\
- && chown -R 65532:65532 /opt/flutter
-
-COPY --from=rover /usr/local/bin/rover /usr/local/bin/
-
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
 

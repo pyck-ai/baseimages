@@ -1,21 +1,37 @@
 # Flutter Image
 
-A Flutter + Dart runtime image with a pre-installed RFW (Remote Flutter Widgets) validator. Supports both `linux/amd64` and `linux/arm64`.
+A Flutter + Dart runtime image with a pre-installed RFW (Remote Flutter Widgets) validator and the AWS CLI. Supports both `linux/amd64` and `linux/arm64`.
 
-## Based on
+## Variants
 
-Our [aws:debian image](../aws/README.md), which itself builds on our [debian base image](../slim/README.md). The aws base provides the AWS CLI so deployments can push Flutter build artefacts directly from CI without a separate aws step.
+| Image | Based on | Tags |
+|-------|----------|------|
+| Alpine | our [alpine base](../slim/README.md) | see below |
+| Debian | our [debian base](../slim/README.md) | see below |
 
 Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
-## Tags
+### Alpine tags
 
 | Tag | Description |
 |-----|-------------|
-| `flutter:latest` | Most recent Flutter version |
+| `flutter:latest` | Most recent Flutter version (Alpine) |
+| `flutter:alpine` | Most recent Flutter version (Alpine) |
 | `flutter:<major>` | Major-version alias, e.g. `flutter:3` |
-| `flutter:<major.minor>` | Minor-version alias, e.g. `flutter:3.32` |
-| `flutter:<version>` | Exact pinned version, e.g. `flutter:3.32.1` |
+| `flutter:<major.minor>` | Minor-version alias, e.g. `flutter:3.38` |
+| `flutter:<version>` | Exact pinned version, e.g. `flutter:3.38.1` |
+| `flutter:<major>-alpine` | Major alias on Alpine, e.g. `flutter:3-alpine` |
+| `flutter:<major.minor>-alpine` | Minor alias on Alpine, e.g. `flutter:3.38-alpine` |
+| `flutter:<version>-alpine` | Exact version on Alpine, e.g. `flutter:3.38.1-alpine` |
+
+### Debian tags
+
+| Tag | Description |
+|-----|-------------|
+| `flutter:debian` | Most recent Flutter version (Debian) |
+| `flutter:<major>-debian` | Major alias on Debian, e.g. `flutter:3-debian` |
+| `flutter:<major.minor>-debian` | Minor alias on Debian, e.g. `flutter:3.38-debian` |
+| `flutter:<version>-debian` | Exact version on Debian, e.g. `flutter:3.38.1-debian` |
 
 ## What is included
 
@@ -32,6 +48,7 @@ Flutter analytics and Dart telemetry are disabled at build time.
 ### arm64 notes
 
 Flutter only ships a Linux x86_64 release archive. For `linux/arm64` builds the image automatically:
+
 1. Replaces the bundled x86_64 Dart SDK with an arm64 build downloaded from the Dart archive.
 2. Clears pre-compiled snapshots and engine artifacts so Flutter regenerates them for arm64.
 3. Runs `flutter precache` to download arm64 engine artifacts and recompile `flutter_tools.snapshot`.
@@ -52,20 +69,28 @@ Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) fi
 
 | Binary | Path | Description |
 |--------|------|-------------|
-| `aws` | `/usr/bin/aws` | AWS CLI (inherited from the aws:debian base) |
+| `aws` | `/usr/bin/aws` | AWS CLI for pushing build artefacts to S3/ECR from CI |
 
 ### Additional packages installed
 
-| Package | Purpose |
-|---------|---------|
-| `file` | Used to detect Dart SDK architecture during arm64 fixup |
-| `gosu` | Privilege drop in the entrypoint (for GitHub Actions root-container support) |
-| `libgcc-s1`, `libstdc++6` | C++ runtime libraries required by Flutter |
-| `libglu1-mesa` | OpenGL utility library required by Flutter |
+| Package | Alpine | Debian | Purpose |
+|---------|--------|--------|---------|
+| AWS CLI | `aws-cli` | `awscli` | Cloud deployments from CI |
+| gosu | `gosu` | `gosu` | Privilege drop in the entrypoint |
+| OpenGL | `glu` | `libglu1-mesa` | Required by the Flutter engine |
+| C++ runtime | _(via gcompat)_ | `libgcc-s1`, `libstdc++6` | Required by Flutter |
 
 ### Default user
 
 Runs as `flutter` (UID 1000, home `/opt/flutter`). `WORKDIR` is `/app`.
+
+## Build stages
+
+The Dockerfile uses three stages to isolate the expensive Flutter SDK download from routine base image updates:
+
+1. **`flutter-sdk`** (`FROM alpine`/`FROM debian`) — downloads the Flutter archive, fixes up the Dart SDK for arm64, and runs `flutter precache`. Only rebuilds when `FLUTTER_VERSION` changes.
+2. **`rfw-validator`** (`FROM flutter-sdk`) — resolves pub dependencies for the RFW validator. Only rebuilds when `pubspec.yaml` or the Flutter version changes.
+3. **RESULT** (`FROM alpine`/`FROM debian`) — installs system packages, creates the flutter user, and assembles the final image. Rebuilds on any base image update, but in seconds since no downloads are involved.
 
 ## Usage
 
@@ -98,11 +123,13 @@ docker run --rm \
 ```dockerfile
 FROM ghcr.io/pyck-ai/baseimages/flutter:latest
 COPY --chown=flutter:flutter . /app
-RUN dart pub get
+RUN /opt/flutter/bin/dart pub get
 ```
 
 ## Build
 
 ```sh
-task build -- flutter
+task build -- flutter           # both alpine and debian variants
+task build -- flutter-alpine    # alpine only
+task build -- flutter-debian    # debian only
 ```

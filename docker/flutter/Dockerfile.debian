@@ -1,22 +1,18 @@
 # syntax=docker/dockerfile:1
 
-FROM aws
+#===============================================================================
+# FLUTTER SDK
+#===============================================================================
+
+# Uses slim (debian context) as base so that changes to the aws→slim chain
+# only invalidate the thin RESULT stage, not the expensive SDK download.
+FROM debian AS flutter-sdk
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG FLUTTER_VERSION
 
 USER 0
-
-RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
-    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
-    apt-get update &&\
-    apt-get install -y --no-install-recommends\
-        file\
-        gosu\
-        libgcc-s1\
-        libglu1-mesa\
-        libstdc++6
 
 # Create flutter user; /opt/flutter is created by the archive extraction below.
 RUN useradd -M -s /bin/bash -u 1000 -d /opt/flutter flutter
@@ -105,19 +101,49 @@ RUN --mount=type=cache,id=flutter-precache,target=/var/cache/flutter-precache,sh
 RUN /opt/flutter/bin/flutter config --no-analytics &&\
     /opt/flutter/bin/dart --disable-analytics
 
-# Symlink flutter/dart binaries from flutter/bin into PATH and create app dir
-USER root
-RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \; &&\
-    install -d -o flutter -g flutter /opt/rfw-validator
+#===============================================================================
+# RFW VALIDATOR
+#===============================================================================
 
-# Set up the RFW validator app
+FROM flutter-sdk AS rfw-validator
+
+USER root
+RUN install -d -o flutter -g flutter /opt/rfw-validator
 WORKDIR /opt/rfw-validator
 COPY --chown=flutter:flutter pubspec.yaml ./
 USER flutter
-RUN dart pub get
-COPY --chown=flutter:flutter validate_rfw.dart generate_binary.dart ./
+RUN /opt/flutter/bin/dart pub get
 
-USER root
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM debian
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+USER 0
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends\
+        awscli\
+        gosu\
+        libgcc-s1\
+        libglu1-mesa\
+        libstdc++6
+
+# Create flutter user with the same uid as in the SDK stage.
+RUN useradd -M -s /bin/bash -u 1000 -d /opt/flutter flutter
+
+COPY --from=rfw-validator /opt/flutter /opt/flutter
+COPY --from=rfw-validator /opt/rfw-validator /opt/rfw-validator
+COPY --chown=flutter:flutter validate_rfw.dart generate_binary.dart /opt/rfw-validator/
+
+RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;
+
 COPY entrypoint.sh /usr/local/bin/validate-rfw
 RUN chmod +x /usr/local/bin/validate-rfw
 

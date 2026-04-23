@@ -28,6 +28,7 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
         ca-certificates\
         coreutils\
         curl\
+        file\
         gawk\
         gcc\
         gcompat\
@@ -43,6 +44,7 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
         musl\
         openssh-client\
         patch\
+        rclone\
         ripgrep\
         rsync\
         tar\

@@ -5,20 +5,6 @@ FROM golang-debian
 ARG TARGETPLATFORM TARGETARCH
 USER 0
 
-# Flutter runtime dependencies (the SDK links against these at runtime).
-# libglu1-mesa is not in the debian base; the others are already present.
-RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
-    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
-    apt-get update &&\
-    apt-get install -y --no-install-recommends libglu1-mesa
-
-# Flutter SDK. The RFW validator app (/opt/rfw-validator) and its entrypoint
-# (validate-rfw) are intentionally excluded — only the SDK is needed here.
-# Ownership is assigned to nonroot so flutter can write to its cache at runtime.
-COPY --from=flutter /opt/flutter /opt/flutter
-RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;\
- && chown -R 65532:65532 /opt/flutter
-
 COPY --from=rover /usr/local/bin/rover /usr/local/bin/
 
 ENV BUN_INSTALL=/bun

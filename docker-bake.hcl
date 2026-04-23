@@ -19,6 +19,7 @@ variable "NGINX_VERSION" {}
 variable "CLAUDE_VERSION" {}
 variable "FLUTTER_VERSION" {}
 variable "BUN_VERSION" {}
+variable "PYTHON_VERSION" {}
 variable "ROVER_VERSION" {}
 
 # Returns version tags for a given image, supporting 1-, 2-, or 3-part versions.
@@ -40,11 +41,9 @@ function "vtags" {
 function "all_in_one_tags" {
   params = [registry, distro]
   result = concat(
-    vtags(registry, "all-in-one", GOLANG_VERSION,  "${distro}-golang-",  ""),
-    vtags(registry, "all-in-one", FLUTTER_VERSION, "${distro}-flutter-", ""),
-    vtags(registry, "all-in-one", ROVER_VERSION,   "${distro}-rover-",   ""),
-    vtags(registry, "all-in-one", BUN_VERSION,     "${distro}-bun-",     ""),
-    vtags(registry, "all-in-one", CLAUDE_VERSION,  "${distro}-claude-",  ""),
+    vtags(registry, "all-in-one", GOLANG_VERSION, "${distro}-golang-", ""),
+    vtags(registry, "all-in-one", BUN_VERSION,    "${distro}-bun-",    ""),
+    vtags(registry, "all-in-one", CLAUDE_VERSION, "${distro}-claude-", ""),
   )
 }
 
@@ -60,18 +59,16 @@ group "default" {
     "ci-stage-1",
     "ci-stage-2",
     "ci-stage-3",
-    "ci-stage-4",
   ]
 }
 
 # CI build stages — used by build.yml to enforce ordering.
-# ci-stage-1 (slim) → ci-stage-2 (direct slim dependents) → ci-stage-3 (flutter)
-# → ci-stage-4 (all-in-one). Each stage fans out in parallel across targets.
+# ci-stage-1 (slim) → ci-stage-2 (direct slim dependents) → ci-stage-3 (all-in-one).
+# Each stage fans out in parallel across targets.
 
 group "ci-stage-1" {
   targets = [
-    "slim-alpine",
-    "slim-debian",
+    "slim",
     "nginx",
   ]
 }
@@ -79,25 +76,16 @@ group "ci-stage-1" {
 group "ci-stage-2" {
   targets = [
     "static",
-    "golang-alpine",
-    "golang-debian",
-    "claude-alpine",
-    "claude-debian",
-    "typescript-alpine",
-    "typescript-debian",
+    "golang",
+    "claude",
+    "typescript",
+    "python",
     "rover",
-    "aws-alpine",
-    "aws-debian",
-  ]
-}
-
-group "ci-stage-3" {
-  targets = [
     "flutter",
   ]
 }
 
-group "ci-stage-4" {
+group "ci-stage-3" {
   targets = [
     "all-in-one",
   ]
@@ -144,18 +132,24 @@ target "slim-debian" {
 # STATIC
 # ==============================================================================
 
-target "static" {
+group "static" {
+  targets = [
+    "static-alpine",
+  ]
+}
+
+target "static-alpine" {
   inherits = ["_common"]
   context = "./docker/static"
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.alpine"
   contexts = {
     "alpine" = "target:slim-alpine"
   }
   tags = [
     "${REGISTRY}/static:latest",
   ]
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:static"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:static,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:static-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:static-alpine,mode=max"]
 }
 
 # ==============================================================================
@@ -204,16 +198,22 @@ target "golang-debian" {
 # NGINX
 # ==============================================================================
 
-target "nginx" {
+group "nginx" {
+  targets = [
+    "nginx-alpine",
+  ]
+}
+
+target "nginx-alpine" {
   inherits = ["_common"]
   context = "./docker/nginx"
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.alpine"
   tags = concat(
     ["${REGISTRY}/nginx:latest"],
     vtags(REGISTRY, "nginx", NGINX_VERSION, "", ""),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nginx"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nginx,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nginx-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nginx-alpine,mode=max"]
 }
 
 # ==============================================================================
@@ -262,19 +262,42 @@ target "claude-debian" {
 # FLUTTER
 # ==============================================================================
 
-target "flutter" {
+group "flutter" {
+  targets = [
+    "flutter-alpine",
+    "flutter-debian",
+  ]
+}
+
+target "flutter-alpine" {
   inherits = ["_common"]
   context = "./docker/flutter"
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.alpine"
   contexts = {
-    "aws" = "target:aws-debian"
+    "alpine" = "target:slim-alpine"
   }
   tags = concat(
-    ["${REGISTRY}/flutter:latest"],
+    ["${REGISTRY}/flutter:latest", "${REGISTRY}/flutter:alpine"],
     vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", ""),
+    vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", "-alpine"),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:flutter"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:flutter,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:flutter-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:flutter-alpine,mode=max"]
+}
+
+target "flutter-debian" {
+  inherits = ["_common"]
+  context = "./docker/flutter"
+  dockerfile = "Dockerfile.debian"
+  contexts = {
+    "debian" = "target:slim-debian"
+  }
+  tags = concat(
+    ["${REGISTRY}/flutter:debian"],
+    vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", "-debian"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:flutter-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:flutter-debian,mode=max"]
 }
 
 # ==============================================================================
@@ -296,7 +319,10 @@ target "typescript-alpine" {
     "alpine" = "target:slim-alpine"
   }
   tags = concat(
-    ["${REGISTRY}/typescript:latest", "${REGISTRY}/typescript:alpine"],
+    [
+      "${REGISTRY}/typescript:latest", 
+      "${REGISTRY}/typescript:alpine",
+    ],
     vtags(REGISTRY, "typescript", BUN_VERSION, "", ""),
     vtags(REGISTRY, "typescript", BUN_VERSION, "", "-alpine"),
   )
@@ -320,62 +346,58 @@ target "typescript-debian" {
 }
 
 # ==============================================================================
-# AWS
+# PYTHON
 # ==============================================================================
 
-group "aws" {
+group "python" {
   targets = [
-    "aws-alpine",
-    "aws-debian",
+    "python-debian",
   ]
 }
 
-target "aws-alpine" {
+target "python-debian" {
   inherits = ["_common"]
-  context = "./docker/aws"
-  dockerfile = "Dockerfile.alpine"
-  contexts = {
-    "alpine" = "target:slim-alpine"
-  }
-  tags = [
-    "${REGISTRY}/aws:latest",
-    "${REGISTRY}/aws:alpine",
-  ]
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:aws-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:aws-alpine,mode=max"]
-}
-
-target "aws-debian" {
-  inherits = ["_common"]
-  context = "./docker/aws"
+  context = "./docker/python"
   dockerfile = "Dockerfile.debian"
   contexts = {
     "debian" = "target:slim-debian"
   }
-  tags = [
-    "${REGISTRY}/aws:debian",
-  ]
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:aws-debian"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:aws-debian,mode=max"]
+  tags = concat(
+    [
+      "${REGISTRY}/python:latest",
+      "${REGISTRY}/python:debian",
+    ],
+    vtags(REGISTRY, "python", PYTHON_VERSION, "", ""),
+    vtags(REGISTRY, "python", PYTHON_VERSION, "", "-debian"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:python-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:python-debian,mode=max"]
 }
 
 # ==============================================================================
 # ROVER
 # ==============================================================================
 
-target "rover" {
+group "rover" {
+  targets = [
+    "rover-debian",
+  ]
+}
+
+target "rover-debian" {
   inherits = ["_common"]
   context = "./docker/rover"
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.debian"
   contexts = {
     "debian" = "target:slim-debian"
   }
   tags = concat(
-    ["${REGISTRY}/rover:latest"],
+    ["${REGISTRY}/rover:latest", "${REGISTRY}/rover:debian"],
     vtags(REGISTRY, "rover", ROVER_VERSION, "", ""),
+    vtags(REGISTRY, "rover", ROVER_VERSION, "", "-debian"),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:rover"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:rover,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian,mode=max"]
 }
 
 # ==============================================================================
@@ -397,8 +419,6 @@ target "all-in-one-alpine" {
     "golang-alpine" = "target:golang-alpine"
     "typescript"    = "target:typescript-alpine"
     "claude"        = "target:claude-alpine"
-    "flutter"       = "target:flutter"
-    "rover"         = "target:rover"
   }
   tags = concat(
     [
@@ -420,8 +440,7 @@ target "all-in-one-debian" {
     "golang-debian" = "target:golang-debian"
     "typescript"    = "target:typescript-debian"
     "claude"        = "target:claude-debian"
-    "flutter"       = "target:flutter"
-    "rover"         = "target:rover"
+    "rover"         = "target:rover-debian"
   }
   tags = concat(
     [
@@ -429,6 +448,7 @@ target "all-in-one-debian" {
       "${REGISTRY}/all-in-one:debian",
     ],
     all_in_one_tags(REGISTRY, "debian-${DEBIAN_RELEASE}"),
+    vtags(REGISTRY, "all-in-one", ROVER_VERSION, "debian-${DEBIAN_RELEASE}-rover-", ""),
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian,mode=max"]

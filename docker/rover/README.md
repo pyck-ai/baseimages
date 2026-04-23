@@ -8,16 +8,22 @@ Apollo GraphQL tooling image providing the [Rover CLI](https://www.apollographql
 |-------|----------|------|
 | Debian | our [debian base](../slim/README.md) | see below |
 
+Rover only publishes glibc binaries, so no Alpine variant is provided.
+
 Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 ### Tags
 
 | Tag | Description |
 |-----|-------------|
-| `rover:latest` | Most recent Rover on Debian |
+| `rover:latest` | Most recent Rover version |
+| `rover:debian` | Most recent Rover version on Debian |
 | `rover:<major>` | Major-version alias, e.g. `rover:0` |
-| `rover:<major.minor>` | Minor-version alias, e.g. `rover:0.27` |
-| `rover:<version>` | Exact pinned version, e.g. `rover:0.27.5` |
+| `rover:<major.minor>` | Minor-version alias, e.g. `rover:0.38` |
+| `rover:<version>` | Exact pinned version, e.g. `rover:0.38.0` |
+| `rover:<major>-debian` | Major alias on Debian, e.g. `rover:0-debian` |
+| `rover:<major.minor>-debian` | Minor alias on Debian, e.g. `rover:0.38-debian` |
+| `rover:<version>-debian` | Exact version on Debian, e.g. `rover:0.38.0-debian` |
 
 ## What is included
 
