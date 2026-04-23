@@ -12,8 +12,10 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `claude:latest` | Latest Claude Code version |
-| `claude:<version>` | Pinned version |
+| `claude:latest` | Most recent Claude Code version |
+| `claude:<major>` | Major-version alias, e.g. `claude:1` |
+| `claude:<major.minor>` | Minor-version alias, e.g. `claude:1.2` |
+| `claude:<version>` | Exact pinned version, e.g. `claude:1.2.3` |
 
 ## What is included
 

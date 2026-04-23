@@ -36,5 +36,4 @@ USER 0
 RUN mkdir -p /bun/bin
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 
-USER nonroot
 WORKDIR /app

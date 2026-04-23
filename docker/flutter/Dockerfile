@@ -36,6 +36,9 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --checksum-jq '.releases[] | select(.version == "{version}") | (.sha256 + " flutter_linux_{version}-stable.tar.xz")'\
     --install-to /opt/\
     &&\
+    git config --global --add safe.directory /opt/flutter &&\
+    git -C /opt/flutter rev-parse HEAD > /opt/flutter/.git/shallow &&\
+    git -C /opt/flutter gc --prune=now &&\
     chown -R flutter:flutter /opt/flutter
 
 # arm64 only: replace the bundled x86_64 Dart SDK with an arm64 build. Flutter's

@@ -12,8 +12,10 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `nginx:latest` | Latest build |
-| `nginx:<version>` | Pinned nginx version |
+| `nginx:latest` | Most recent build |
+| `nginx:<major>` | Major-version alias, e.g. `nginx:1` |
+| `nginx:<major.minor>` | Minor-version alias, e.g. `nginx:1.27` |
+| `nginx:<version>` | Exact pinned version, e.g. `nginx:1.27.3` |
 
 ## What is included
 

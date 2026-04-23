@@ -38,7 +38,6 @@ COPY download.sh /usr/local/sbin/download.sh
 
 RUN groupadd -g 65532 nonroot &&\
     useradd -m -d /home/nonroot -s /bin/sh -u 65532 -g nonroot nonroot
-USER nonroot
 
 WORKDIR /app
 

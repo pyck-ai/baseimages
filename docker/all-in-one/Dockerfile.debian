@@ -84,5 +84,4 @@ RUN mkdir -p /bun/bin
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 COPY --from=claude /usr/local/bin/claude /usr/local/bin/
 
-USER nonroot
 WORKDIR /app

@@ -96,5 +96,4 @@ COPY --from=goarchlint /usr/local/bin/go-arch-lint /usr/local/bin/
 COPY --from=golangcilint /usr/local/bin/golangci-lint /usr/local/bin/
 COPY --from=gotestsum /usr/local/bin/gotestsum /usr/local/bin/
 
-USER nonroot
 WORKDIR /app

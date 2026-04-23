@@ -10,11 +10,29 @@ Our [golang alpine image](../golang/README.md) (`latest`/`alpine`) or [golang de
 
 ## Tags
 
+### Distro tags
+
 | Tag | Description |
 |-----|-------------|
 | `all-in-one:latest` | Full toolset on Alpine (musl) |
 | `all-in-one:alpine` | Full toolset on Alpine (musl) |
 | `all-in-one:debian` | Full toolset on Debian (glibc) |
+
+### Per-tool version tags
+
+Each included tool gets a set of version tags in the form `<distro>-<tool>-<version>`, with major.minor and major aliases. Examples for Alpine 3 with Go 1.26.1 and Bun 1.2.3:
+
+| Tag pattern | Example |
+|-------------|---------|
+| `all-in-one:alpine-<major>-golang-<version>` | `all-in-one:alpine-3-golang-1.26.1` |
+| `all-in-one:alpine-<major>-golang-<major.minor>` | `all-in-one:alpine-3-golang-1.26` |
+| `all-in-one:alpine-<major>-golang-<major>` | `all-in-one:alpine-3-golang-1` |
+| `all-in-one:alpine-<major>-flutter-<version>` | `all-in-one:alpine-3-flutter-3.32.1` |
+| `all-in-one:alpine-<major>-rover-<version>` | `all-in-one:alpine-3-rover-0.27.5` |
+| `all-in-one:alpine-<major>-bun-<version>` | `all-in-one:alpine-3-bun-1.2.3` |
+| `all-in-one:alpine-<major>-claude-<version>` | `all-in-one:alpine-3-claude-1.2.3` |
+
+The same pattern applies to the Debian variant with `debian-<release>` as the distro prefix, e.g. `all-in-one:debian-bookworm-golang-1.26.1`.
 
 ## What is included
 

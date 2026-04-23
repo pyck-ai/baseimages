@@ -14,8 +14,10 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `rover:latest` | Latest Rover on Debian |
-| `rover:<version>` | Pinned Rover version on Debian |
+| `rover:latest` | Most recent Rover on Debian |
+| `rover:<major>` | Major-version alias, e.g. `rover:0` |
+| `rover:<major.minor>` | Minor-version alias, e.g. `rover:0.27` |
+| `rover:<version>` | Exact pinned version, e.g. `rover:0.27.5` |
 
 ## What is included
 

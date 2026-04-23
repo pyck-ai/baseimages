@@ -12,8 +12,10 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `flutter:latest` | Latest Flutter version |
-| `flutter:<version>` | Pinned Flutter version |
+| `flutter:latest` | Most recent Flutter version |
+| `flutter:<major>` | Major-version alias, e.g. `flutter:3` |
+| `flutter:<major.minor>` | Minor-version alias, e.g. `flutter:3.32` |
+| `flutter:<version>` | Exact pinned version, e.g. `flutter:3.32.1` |
 
 ## What is included
 

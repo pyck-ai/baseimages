@@ -17,17 +17,23 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `typescript:latest` | Latest Bun on Alpine |
-| `typescript:alpine` | Latest Bun on Alpine |
-| `typescript:<version>` | Pinned Bun version on Alpine |
-| `typescript:<version>-alpine` | Pinned Bun version on Alpine |
+| `typescript:latest` | Most recent Bun on Alpine |
+| `typescript:alpine` | Most recent Bun on Alpine |
+| `typescript:<major>` | Major-version alias, e.g. `typescript:1` |
+| `typescript:<major.minor>` | Minor-version alias, e.g. `typescript:1.2` |
+| `typescript:<version>` | Exact pinned version, e.g. `typescript:1.2.3` |
+| `typescript:<major>-alpine` | Major alias on Alpine, e.g. `typescript:1-alpine` |
+| `typescript:<major.minor>-alpine` | Minor alias on Alpine, e.g. `typescript:1.2-alpine` |
+| `typescript:<version>-alpine` | Exact version on Alpine, e.g. `typescript:1.2.3-alpine` |
 
 ### Debian tags
 
 | Tag | Description |
 |-----|-------------|
-| `typescript:debian` | Latest Bun on Debian |
-| `typescript:<version>-debian` | Pinned Bun version on Debian |
+| `typescript:debian` | Most recent Bun on Debian |
+| `typescript:<major>-debian` | Major alias on Debian, e.g. `typescript:1-debian` |
+| `typescript:<major.minor>-debian` | Minor alias on Debian, e.g. `typescript:1.2-debian` |
+| `typescript:<version>-debian` | Exact pinned version on Debian, e.g. `typescript:1.2.3-debian` |
 
 ## What is included
 

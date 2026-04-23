@@ -17,8 +17,37 @@ permissions:
   packages: write
   actions: write
 
+env:
+  REGISTRY: ghcr.io/pyck-ai/baseimages
+
 jobs:
-  build:
+  # Read stage-2 and stage-3 target lists from the bake file so new images
+  # are automatically picked up by the parallel build matrices without touching CI.
+  discover:
+    runs-on: self-hosted
+    outputs:
+      stage-2-targets: ${{ steps.targets.outputs.stage-2-targets }}
+      stage-3-targets: ${{ steps.targets.outputs.stage-3-targets }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Read targets from bake file
+        id: targets
+        run: |
+          set -a && source buildargs.conf && set +a
+          stage2=$(REGISTRY=${{ env.REGISTRY }} \
+            docker buildx bake --print ci-stage-2 \
+            | jq -c '[.target | keys[]]')
+          stage3=$(REGISTRY=${{ env.REGISTRY }} \
+            docker buildx bake --print ci-stage-3 \
+            | jq -c '[.target | keys[]]')
+          echo "stage-2-targets=$stage2" >> $GITHUB_OUTPUT
+          echo "stage-3-targets=$stage3" >> $GITHUB_OUTPUT
+
+  # Build the slim base images. Runs in parallel with discover since it has
+  # no dependency on its output.
+  stage-1:
     runs-on: self-hosted
     steps:
       - name: Checkout repository
@@ -56,7 +85,79 @@ jobs:
           {
             echo 'set<<EOF'
             grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
-            echo '*.args.REGISTRY=ghcr.io/pyck-ai/baseimages'
+            echo '*.args.REGISTRY=${{ env.REGISTRY }}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
+      - name: Build and push
+        id: bake
+        continue-on-error: true
+        uses: docker/bake-action@v7
+        with:
+          targets: ci-stage-1
+          pull: true
+          push: true
+          set: ${{ steps.buildargs.outputs.set }}
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+
+      - name: Retry build and push
+        if: steps.bake.outcome == 'failure'
+        uses: docker/bake-action@v7
+        with:
+          targets: ci-stage-1
+          pull: true
+          push: true
+          set: ${{ steps.buildargs.outputs.set }}
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+
+  # Fan out over all ci-stage-2 targets in parallel. Each target gets its own
+  # runner so images build concurrently rather than sequentially.
+  stage-2:
+    needs: [discover, stage-1]
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.discover.outputs.stage-2-targets) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up buildx builder
+        run: task setup
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          logout: false
+
+      - name: Read build args
+        id: buildargs
+        run: |
+          {
+            echo 'set<<EOF'
+            grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
+            echo '*.args.REGISTRY=${{ env.REGISTRY }}'
             echo 'EOF'
           } >> $GITHUB_OUTPUT
           grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
@@ -64,8 +165,67 @@ jobs:
       - name: Build and push
         uses: docker/bake-action@v7
         with:
+          targets: ${{ matrix.target }}
           pull: true
           push: true
           set: ${{ steps.buildargs.outputs.set }}
         env:
-          REGISTRY: ghcr.io/pyck-ai/baseimages
+          REGISTRY: ${{ env.REGISTRY }}
+
+  # Build the all-in-one images once all their dependencies are pushed.
+  stage-3:
+    needs: [discover, stage-2]
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.discover.outputs.stage-3-targets) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up buildx builder
+        run: task setup
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          logout: false
+
+      - name: Read build args
+        id: buildargs
+        run: |
+          {
+            echo 'set<<EOF'
+            grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
+            echo '*.args.REGISTRY=${{ env.REGISTRY }}'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
+      - name: Build and push
+        uses: docker/bake-action@v7
+        with:
+          targets: ${{ matrix.target }}
+          pull: true
+          push: true
+          set: ${{ steps.buildargs.outputs.set }}
+        env:
+          REGISTRY: ${{ env.REGISTRY }}

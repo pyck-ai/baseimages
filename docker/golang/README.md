@@ -15,18 +15,25 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `golang:latest` | Latest Go on Alpine |
-| `golang:alpine` | Latest Go on Alpine |
-| `golang:<version>-alpine` | Specific Go version on Alpine |
-| `golang:<version>-alpine-<alpine_version>` | Pinned Go + Alpine versions |
+| `golang:latest` | Most recent Go on Alpine |
+| `golang:alpine` | Most recent Go on Alpine |
+| `golang:alpine-<alpine_version>` | Alpine version, e.g. `golang:alpine-3.22` |
+| `golang:<major>` | Major Go alias, e.g. `golang:1` |
+| `golang:<major.minor>` | Minor Go alias, e.g. `golang:1.26` |
+| `golang:<version>` | Exact Go version, e.g. `golang:1.26.1` |
+| `golang:<major>-alpine` | Major Go alias on Alpine, e.g. `golang:1-alpine` |
+| `golang:<major.minor>-alpine` | Minor Go alias on Alpine, e.g. `golang:1.26-alpine` |
+| `golang:<version>-alpine` | Exact Go version on Alpine, e.g. `golang:1.26.1-alpine` |
 
 ### Debian tags
 
 | Tag | Description |
 |-----|-------------|
-| `golang:debian` | Latest Go on Debian |
-| `golang:<version>-debian` | Specific Go version on Debian |
-| `golang:<version>-debian-<release>` | Pinned Go version + Debian release |
+| `golang:debian` | Most recent Go on Debian |
+| `golang:debian-<release>` | Debian release name, e.g. `golang:debian-bookworm` |
+| `golang:<major>-debian` | Major Go alias on Debian, e.g. `golang:1-debian` |
+| `golang:<major.minor>-debian` | Minor Go alias on Debian, e.g. `golang:1.26-debian` |
+| `golang:<version>-debian` | Exact Go version on Debian, e.g. `golang:1.26.1-debian` |
 
 ## What is included
 

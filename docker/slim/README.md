@@ -4,12 +4,30 @@ Two hardened base images providing a consistent foundation for all other images 
 
 ## Variants
 
-| Image | Based on | Tags |
-|-------|----------|------|
-| Alpine | `alpine:<ALPINE_VERSION>` | `slim:latest`, `slim:alpine`, `slim:alpine-<ALPINE_VERSION>` |
-| Debian | `debian:<DEBIAN_RELEASE>` | `slim:debian`, `slim:debian-<DEBIAN_RELEASE>` |
+| Image | Based on |
+|-------|----------|
+| Alpine | `alpine:<ALPINE_VERSION>` |
+| Debian | `debian:<DEBIAN_RELEASE>` |
 
 Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
+
+## Tags
+
+### Alpine
+
+| Tag | Description |
+|-----|-------------|
+| `slim:latest` | Most recent Alpine build |
+| `slim:alpine` | Most recent Alpine build |
+| `slim:alpine-<major>` | Major Alpine version, e.g. `slim:alpine-3` |
+| `slim:alpine-<version>` | Exact Alpine version, e.g. `slim:alpine-3.22` |
+
+### Debian
+
+| Tag | Description |
+|-----|-------------|
+| `slim:debian` | Most recent Debian build |
+| `slim:debian-<release>` | Debian release name, e.g. `slim:debian-bookworm` |
 
 ## What is included
 

@@ -53,7 +53,6 @@ COPY download.sh /usr/local/sbin/download.sh
 
 RUN addgroup -g 65532 nonroot &&\
     adduser -D -u 65532 -G nonroot -s /bin/sh nonroot
-USER nonroot
 
 WORKDIR /app
 
