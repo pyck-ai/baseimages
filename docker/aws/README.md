@@ -1,24 +1,34 @@
 # AWS Image
 
-Alpine base with the [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-welcome.html) pre-installed. Kept as a separate image because aws-cli pulls in Python and its full dependency tree (~650 MB), which would bloat every base image consumer that doesn't need it.
+[AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-welcome.html) pre-installed on top of our base images. Kept as a separate image because aws-cli pulls in Python and its full dependency tree (~650 MB), which would bloat every base image consumer that doesn't need it.
 
-## Based on
+## Variants
 
-Our [alpine base image](../slim/README.md).
+| Image | Based on | Tags |
+|-------|----------|------|
+| Alpine | our [alpine base](../slim/README.md) | see below |
+| Debian | our [debian base](../slim/README.md) | see below |
 
-## Tags
+The aws-cli version tracks the respective package repository for the pinned base image version.
+
+### Alpine tags
 
 | Tag | Description |
 |-----|-------------|
-| `aws:latest` | Latest aws-cli for the pinned Alpine version |
+| `aws:latest` | Latest aws-cli on Alpine |
+| `aws:alpine` | Latest aws-cli on Alpine |
 
-The aws-cli version tracks the Alpine package repository for the `ALPINE_VERSION` pinned in [`buildargs.conf`](../../buildargs.conf).
+### Debian tags
+
+| Tag | Description |
+|-----|-------------|
+| `aws:debian` | Latest aws-cli on Debian |
 
 ## What is included
 
 | Binary | Path | Description |
 |--------|------|-------------|
-| `aws` | `/usr/local/bin/aws` | AWS CLI v2 |
+| `aws` | `/usr/bin/aws` | AWS CLI |
 
 ### Default user
 
@@ -44,5 +54,7 @@ COPY --from=fetch /tmp/data.tar.gz /tmp/
 ## Build
 
 ```sh
-task build -- aws
+task build -- aws           # both alpine and debian variants
+task build -- aws-alpine    # alpine only
+task build -- aws-debian    # debian only
 ```

@@ -12,32 +12,51 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 | `golang:latest` | Go toolchain + CI tools (Alpine variant) | [docker/golang](docker/golang/README.md) |
 | `golang:debian` | Go toolchain + CI tools (Debian variant) | [docker/golang](docker/golang/README.md) |
 | `nginx` | Unprivileged nginx for SPAs with OTel support | [docker/nginx](docker/nginx/README.md) |
-| `claude` | Claude Code CLI for agent pipelines | [docker/claude](docker/claude/README.md) |
+| `claude:latest` | Claude Code CLI for agent pipelines (Alpine) | [docker/claude](docker/claude/README.md) |
+| `claude:debian` | Claude Code CLI for agent pipelines (Debian) | [docker/claude](docker/claude/README.md) |
 | `flutter` | Flutter + Dart runtime with RFW validator | [docker/flutter](docker/flutter/README.md) |
 | `typescript:latest` | TypeScript/JS runtime powered by Bun (Alpine) | [docker/typescript](docker/typescript/README.md) |
 | `typescript:debian` | TypeScript/JS runtime powered by Bun (Debian) | [docker/typescript](docker/typescript/README.md) |
 | `rover` | Apollo Rover CLI for schema registry and supergraph operations | [docker/rover](docker/rover/README.md) |
-| `aws` | AWS CLI v2 (kept separate to avoid bloating the slim) | [docker/aws](docker/aws/README.md) |
+| `aws:latest` | AWS CLI (Alpine) | [docker/aws](docker/aws/README.md) |
+| `aws:debian` | AWS CLI (Debian) — base for the flutter image | [docker/aws](docker/aws/README.md) |
 | `all-in-one:alpine` | Full toolset in a single Alpine image | [docker/all-in-one](docker/all-in-one/README.md) |
 | `all-in-one:debian` | Full toolset in a single Debian image | [docker/all-in-one](docker/all-in-one/README.md) |
 
 ## Dependency graph
 
-```
-slim:alpine ─────────────────────────┬──▶ static:latest
-                                     ├──▶ golang:latest (alpine) ──┐
-                                     ├──▶ claude:latest            ├──▶ all-in-one:alpine
-                                     ├──▶ typescript:latest        │
-                                     └──▶ aws:latest               │
-                                                                    │
-slim:debian ─────────────────────────┬──▶ golang:debian ───────────┐
-                                     ├──▶ flutter:latest ──────────┼──▶ all-in-one:debian
-                                     ├──▶ rover:latest ────────────┤
-                                     └──▶ typescript:debian        │
-                                                                    │
-                           (+ bun, claude downloaded) ─────────────┘
+```mermaid
+graph LR
+  slim-alpine["slim:alpine"]
+  slim-debian["slim:debian"]
+  nginx-base["nginxinc/nginx-unprivileged"]
 
-nginxinc/nginx-unprivileged ─────────────▶ nginx:latest
+  slim-alpine --> static
+  slim-alpine --> golang-alpine["golang:alpine"]
+  slim-alpine --> claude-alpine["claude:alpine"]
+  slim-alpine --> typescript-alpine["typescript:alpine"]
+  slim-alpine --> aws
+
+  slim-debian --> golang-debian["golang:debian"]
+  slim-debian --> claude-debian["claude:debian"]
+  slim-debian --> aws-debian["aws:debian"]
+  slim-debian --> rover
+  slim-debian --> typescript-debian["typescript:debian"]
+  aws-debian --> flutter
+
+  golang-alpine --> aio-alpine["all-in-one:alpine"]
+  claude-alpine  --> aio-alpine
+  typescript-alpine --> aio-alpine
+  flutter --> aio-alpine
+  rover   --> aio-alpine
+
+  golang-debian --> aio-debian["all-in-one:debian"]
+  claude-debian  --> aio-debian
+  typescript-debian --> aio-debian
+  flutter --> aio-debian
+  rover   --> aio-debian
+
+  nginx-base --> nginx
 ```
 
 ## Versioning

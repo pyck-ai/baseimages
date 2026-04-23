@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM debian
+FROM aws
 
 ARG TARGETPLATFORM
 ARG TARGETARCH

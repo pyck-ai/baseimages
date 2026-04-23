@@ -42,10 +42,9 @@ Everything from the respective [golang image](../golang/README.md), plus:
 |------|--------|--------|--------|--------|
 | [Flutter](https://flutter.dev) | `flutter` | glibc via gcompat | glibc | SDK copied from the `flutter` image, `FLUTTER_VERSION` in `buildargs.conf` |
 | [Dart](https://dart.dev) | `dart` | glibc via gcompat | glibc | Bundled with the Flutter SDK |
-| [Bun](https://bun.sh) | `bun` | musl | glibc | `BUN_VERSION` in `buildargs.conf` |
-| [Rover](https://www.apollographql.com/docs/rover/) | `rover` | glibc via gcompat | glibc | Copied from the `rover` image, `ROVER_VERSION` in `buildargs.conf` |
-| [Claude Code](https://claude.ai/code) | `claude` | musl + shim | glibc | `CLAUDE_VERSION` in `buildargs.conf` |
-| [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/) | `aws` | apk package | apt package | Version tracks `ALPINE_VERSION` / `DEBIAN_RELEASE` |
+| [Bun](https://bun.sh) | `bun` | musl | glibc | Binary copied from the `typescript` image, `BUN_VERSION` in `buildargs.conf` |
+| [Rover](https://www.apollographql.com/docs/rover/) | `rover` | glibc via gcompat | glibc | Binary copied from the `rover` image, `ROVER_VERSION` in `buildargs.conf` |
+| [Claude Code](https://claude.ai/code) | `claude` | musl + shim | glibc | Binary copied from the `claude` image, `CLAUDE_VERSION` in `buildargs.conf` |
 
 Refer to the [golang README](../golang/README.md) and [base README](../slim/README.md) for the full inherited toolset and environment variables.
 
@@ -69,7 +68,7 @@ The RFW validator app and `validate-rfw` entrypoint from the `flutter` image are
 
 ### Default user
 
-Runs as `nonroot` (UID/GID 65532). `WORKDIR` is `/app`.
+Runs as `root` (UID 0). `WORKDIR` is `/app`.
 
 ## Notes
 

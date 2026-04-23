@@ -1,73 +1,5 @@
 # syntax=docker/dockerfile:1
 
-ARG BUN_VERSION=1
-ARG CLAUDE_VERSION
-
-#===============================================================================
-# SOURCES
-# Import already-built images as named stages so their binaries can be copied
-# into the result stage without re-running their build logic.
-#===============================================================================
-
-# rover binary is taken directly from the rover image. Rover only ships glibc
-# builds; gcompat in the alpine base provides the compatibility shim.
-FROM rover AS rover-src
-
-# Flutter SDK is copied from the flutter image, which pre-warms the arm64
-# precache so this stage doesn't have to recompile flutter_tools.snapshot.
-# The Flutter SDK links against glibc; gcompat handles this on Alpine.
-FROM flutter AS flutter-src
-
-#===============================================================================
-# DOWNLOADS
-#===============================================================================
-
-FROM alpine AS bun
-ARG TARGETPLATFORM TARGETARCH BUN_VERSION
-USER 0
-RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
-    download.sh\
-    --var "version=${BUN_VERSION}"\
-    --platform-arch "linux/amd64=x64"\
-    --platform-arch "linux/arm64=aarch64"\
-    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}-musl.zip"\
-    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
-    --install-paths "bun-linux-{arch}-musl/bun"\
-    --install-to "/usr/local/bin/"\
-    --verify "bun --version | grep -qF '{version}'"
-
-FROM alpine AS claude
-ARG TARGETPLATFORM TARGETARCH CLAUDE_VERSION
-USER 0
-# The musl Claude binary is missing posix_getdents; compile a shim for it.
-COPY <<EOF /tmp/claude_fix.c
-#define _GNU_SOURCE
-#include <dirent.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-
-ssize_t posix_getdents(int fd, void *buf, size_t count) {
-    return syscall(SYS_getdents64, fd, buf, count);
-}
-EOF
-RUN gcc -shared -fPIC -o /usr/local/lib/claude_fix.so /tmp/claude_fix.c &&\
-    rm /tmp/claude_fix.c
-RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
-    download.sh\
-    --var "version=${CLAUDE_VERSION}"\
-    --var "bucket=claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819"\
-    --platform-arch "linux/amd64=x64"\
-    --platform-arch "linux/arm64=arm64"\
-    --url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/linux-{arch}-musl/claude"\
-    --checksum-url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/manifest.json"\
-    --checksum-jq '.platforms["linux-{arch}-musl"] | (.checksum + " " + .binary)'\
-    --install-to "/usr/local/bin/"\
-    --verify 'claude --version | grep -qF "{version}"'
-
-#===============================================================================
-# RESULT
-#===============================================================================
-
 FROM golang-alpine
 
 ARG TARGETPLATFORM TARGETARCH
@@ -80,17 +12,17 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
 # Flutter SDK. The RFW validator app (/opt/rfw-validator) and its entrypoint
 # (validate-rfw) are intentionally excluded — only the SDK is needed here.
 # Ownership is assigned to nonroot so flutter can write to its cache at runtime.
-COPY --from=flutter-src /opt/flutter /opt/flutter
+COPY --from=flutter /opt/flutter /opt/flutter
 RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;\
  && chown -R 65532:65532 /opt/flutter
 
-COPY --from=rover-src /usr/local/bin/rover /usr/local/bin/
+COPY --from=rover /usr/local/bin/rover /usr/local/bin/
 
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
 
 RUN mkdir -p /bun/bin
-COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+COPY --from=typescript /usr/local/bin/bun /usr/local/bin/
 COPY --from=claude /usr/local/bin/claude /usr/local/bin/
 COPY --from=claude /usr/local/lib/claude_fix.so /usr/local/lib/
 ENV LD_PRELOAD=/usr/local/lib/claude_fix.so

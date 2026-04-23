@@ -4,7 +4,7 @@ A Flutter + Dart runtime image with a pre-installed RFW (Remote Flutter Widgets)
 
 ## Based on
 
-Our [debian base image](../slim/README.md).
+Our [aws:debian image](../aws/README.md), which itself builds on our [debian base image](../slim/README.md). The aws base provides the AWS CLI so deployments can push Flutter build artefacts directly from CI without a separate aws step.
 
 Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
@@ -47,6 +47,12 @@ Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) fi
 | `/opt/rfw-validator/validate_rfw.dart` | Validates `.rfwtxt` (text) and `.rfw` (binary) files |
 | `/opt/rfw-validator/generate_binary.dart` | Converts text RFW to binary format |
 | `/usr/local/bin/validate-rfw` | Entrypoint script for simplified CLI use |
+
+### Additional tools
+
+| Binary | Path | Description |
+|--------|------|-------------|
+| `aws` | `/usr/bin/aws` | AWS CLI (inherited from the aws:debian base) |
 
 ### Additional packages installed
 
