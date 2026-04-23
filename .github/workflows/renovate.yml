@@ -52,5 +52,6 @@ jobs:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_AUTODISCOVER: 'false'
           RENOVATE_ONBOARDING: 'false'
+          RENOVATE_REQUIRE_CONFIG: 'required'
           RENOVATE_CONFIG_FILE: ${{ env.RENOVATE_CONFIG_FILE }}
           LOG_LEVEL: 'debug'

@@ -4,6 +4,8 @@
 		// Renovate's recommended defaults: grouping, automerge, ignore patterns, etc.
 		"config:recommended"
 	],
+	// Explicit prefix for all Renovate branches; keeps them easy to filter and identify.
+	"branchPrefix": "renovate/",
 	// Only manage GitHub Actions pins and the custom regex manager for buildargs.conf.
 	"enabledManagers": [
 		"github-actions",
