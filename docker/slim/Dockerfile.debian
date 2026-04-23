@@ -1,0 +1,150 @@
+# syntax=docker/dockerfile:1
+
+ARG DEBIAN_RELEASE=trixie
+
+FROM debian:${DEBIAN_RELEASE} AS base
+
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends\
+        bash\
+        build-essential\
+        ca-certificates\
+        coreutils\
+        curl\
+        gcc\
+        gettext\
+        git\
+        gawk\
+        jq\
+        linux-headers-${TARGETARCH}\
+        ripgrep\
+        rsync\
+        tzdata\
+        unzip\
+        zstd
+
+RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime &&\
+    dpkg-reconfigure -f noninteractive tzdata
+
+RUN update-ca-certificates
+
+COPY download.sh /usr/local/sbin/download.sh
+
+RUN groupadd -g 65532 nonroot &&\
+    useradd -m -d /home/nonroot -s /bin/sh -u 65532 -g nonroot nonroot
+USER nonroot
+
+WORKDIR /app
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM base AS taskfile
+ARG TARGETPLATFORM TARGETARCH TASKFILE_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${TASKFILE_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/go-task/task/releases/download/v{version}/task_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/go-task/task/releases/download/v{version}/task_checksums.txt"\
+    --install-paths "task"\
+    --install-to "/usr/local/bin/"\
+    --verify "task --version | grep -qF '{version}'"
+
+FROM base AS flyctl
+ARG TARGETPLATFORM TARGETARCH FLYCTL_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${FLYCTL_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_Linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_checksums.txt"\
+    --install-paths "flyctl"\
+    --install-to "/usr/local/bin/"\
+    --verify "flyctl --version | grep -qF 'version {version}'"
+
+FROM base AS ghcli
+ARG TARGETPLATFORM TARGETARCH GHCLI_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GHCLI_VERSION}"\
+    --url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt"\
+    --install-paths "gh_{version}_linux_{arch}/bin/gh"\
+    --install-to "/usr/local/bin/"\
+    --verify "gh --version | grep -qF 'version {version}'"
+
+FROM base AS helm
+ARG TARGETPLATFORM TARGETARCH HELM_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${HELM_VERSION}"\
+    --url "https://get.helm.sh/helm-v{version}-linux-{arch}.tar.gz"\
+    --checksum-url "https://get.helm.sh/helm-v{version}-linux-{arch}.tar.gz.sha256sum"\
+    --install-paths "linux-{arch}/helm"\
+    --install-to "/usr/local/bin/"\
+    --verify "helm version | grep -qF 'Version:\"v{version}\"'"
+
+FROM base AS kubectl
+ARG TARGETPLATFORM TARGETARCH KUBECTL_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${KUBECTL_VERSION}"\
+    --url "https://dl.k8s.io/release/v{version}/bin/linux/{arch}/kubectl"\
+    --checksum-url "https://dl.k8s.io/release/v{version}/bin/linux/{arch}/kubectl.sha256"\
+    --install-to "/usr/local/bin/"\
+    --verify "kubectl version --client=true | grep -qF 'Client Version: v{version}'"
+
+FROM base AS kustomize
+ARG TARGETPLATFORM TARGETARCH KUSTOMIZE_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${KUSTOMIZE_VERSION}"\
+    --url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/kustomize_v{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/checksums.txt"\
+    --install-paths "kustomize"\
+    --install-to "/usr/local/bin/"\
+    --verify "kustomize version | grep -qF 'v{version}'"
+
+FROM base AS watchexec
+ARG TARGETPLATFORM TARGETARCH WATCHEXEC_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${WATCHEXEC_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-linux-gnu.tar.xz"\
+    --checksum-url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-linux-gnu.tar.xz.sha256"\
+    --install-paths "watchexec-{version}-{arch}-unknown-linux-gnu/watchexec"\
+    --install-to "/usr/local/bin/"\
+    --verify "watchexec --version | grep -qF 'watchexec {version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM base
+
+COPY --from=taskfile /usr/local/bin/task /usr/local/bin/
+COPY --from=flyctl /usr/local/bin/flyctl /usr/local/bin/
+COPY --from=ghcli /usr/local/bin/gh /usr/local/bin/
+COPY --from=helm /usr/local/bin/helm /usr/local/bin/
+COPY --from=kubectl /usr/local/bin/kubectl /usr/local/bin/
+COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/
+COPY --from=watchexec /usr/local/bin/watchexec /usr/local/bin/

@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+ARG BUN_VERSION=1
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM alpine AS bun
+ARG TARGETPLATFORM TARGETARCH BUN_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}-musl.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}-musl/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM alpine
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+ENV BUN_INSTALL=/bun
+ENV PATH="/bun/bin:${PATH}"
+
+USER 0
+RUN mkdir -p /bun/bin
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+
+USER nonroot
+WORKDIR /app

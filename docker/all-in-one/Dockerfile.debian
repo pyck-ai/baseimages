@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1
+
+ARG BUN_VERSION=1
+ARG CLAUDE_VERSION
+
+#===============================================================================
+# SOURCES
+# Import already-built images as named stages so their binaries can be copied
+# into the result stage without re-running their build logic.
+#===============================================================================
+
+# rover binary is taken directly from the rover image (both are debian-based).
+FROM rover AS rover-src
+
+# Flutter SDK is copied from the flutter image, which pre-warms the arm64
+# precache so this stage doesn't have to recompile flutter_tools.snapshot.
+FROM flutter AS flutter-src
+
+#===============================================================================
+# DOWNLOADS
+# Bun and Claude are downloaded here using their glibc builds. The dedicated
+# typescript and claude images use musl variants targeting Alpine; this image
+# is Debian-based and needs the standard glibc binaries.
+#===============================================================================
+
+FROM debian AS bun
+ARG TARGETPLATFORM TARGETARCH BUN_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'"
+
+FROM debian AS claude
+ARG TARGETPLATFORM TARGETARCH CLAUDE_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${CLAUDE_VERSION}"\
+    --var "bucket=claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/linux-{arch}/claude"\
+    --checksum-url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/manifest.json"\
+    --checksum-jq '.platforms["linux-{arch}"] | (.checksum + " " + .binary)'\
+    --install-to "/usr/local/bin/"\
+    --verify 'claude --version | grep -qF "{version}"'
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM golang-debian
+
+ARG TARGETPLATFORM TARGETARCH
+USER 0
+
+# Flutter runtime dependencies (the SDK links against these at runtime).
+# libglu1-mesa is not in the debian base; the others are already present.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends libglu1-mesa
+
+# Flutter SDK. The RFW validator app (/opt/rfw-validator) and its entrypoint
+# (validate-rfw) are intentionally excluded — only the SDK is needed here.
+# Ownership is assigned to nonroot so flutter can write to its cache at runtime.
+COPY --from=flutter-src /opt/flutter /opt/flutter
+RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;\
+ && chown -R 65532:65532 /opt/flutter
+
+COPY --from=rover-src /usr/local/bin/rover /usr/local/bin/
+
+ENV BUN_INSTALL=/bun
+ENV PATH="/bun/bin:${PATH}"
+
+RUN mkdir -p /bun/bin
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+COPY --from=claude /usr/local/bin/claude /usr/local/bin/
+
+USER nonroot
+WORKDIR /app

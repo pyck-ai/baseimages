@@ -23,6 +23,7 @@ CHECKSUM_JQ=""    # Optional: jq query to extract "checksum filename" from a JSO
 INSTALL_PATHS=()
 INSTALL_TO=""
 INSTALL_PACKAGE=false
+DOWNLOAD_CACHE_DIR="${DOWNLOAD_CACHE_DIR:-/var/cache/downloads}"
 POST_INSTALL_CMDS=()
 VERIFY_CMDS=()
 DEBUG=false
@@ -53,11 +54,14 @@ OPTIONAL:
 	--checksum-jq QUERY    jq query applied to a JSON checksum file; must output
 	                       lines in "<checksum> <filename>" format compatible with
 	                       sha256sum et al. Variable substitution applies to QUERY.
-	--install-to DIR       Extract archive and install files to specified directory
+	--install-to DIR       Install to specified directory.
+	                       With --install-paths: extract only those paths, installed flat into DIR.
+	                       Without --install-paths: extract the full archive tree into DIR.
+	                       For direct binaries (non-archive): copy the binary to DIR.
 	--install-pkg          Install the downloaded package using system package manager
 						   (currently supports .deb packages via dpkg -i)
-	--install-paths PATHS   Comma-separated list of paths inside archive to install
-							(can be specified multiple times; if not specified, all files will be installed)
+	--install-paths PATHS   Comma-separated list of paths inside archive to install flat into --install-to
+							(can be specified multiple times)
 	--var KEY=VALUE        Define a variable for use as {KEY} in URLs and paths
 	                       (can be specified multiple times; {os} and {arch} are pre-defined)
 	--platform PLATFORM    Target platform (default: ${PLATFORM})
@@ -332,6 +336,39 @@ checksum_cmd() {
 }
 
 #
+# Extract the expected hex digest for archive_name from a checksum file.
+# Supports "digest  filename" format and single-line digest-only format.
+# Prints the raw digest on stdout; exits 3 on failure.
+#
+get_expected_checksum() {
+	local checksum_path="$1"
+	local archive_name="$2"
+
+	local expected
+
+	# "digest  filename" format
+	expected=$(grep -F "$archive_name" "$checksum_path" 2>/dev/null | awk '{print $1}' | head -n1 || true)
+
+	# Single-line digest-only format
+	if [[ -z "$expected" ]]; then
+		local line_count
+		line_count=$(wc -l < "$checksum_path" 2>/dev/null || echo "0")
+		if [[ $line_count -le 1 ]]; then
+			expected=$(tr -d '[:space:]' < "$checksum_path" 2>/dev/null || true)
+		fi
+	fi
+
+	if [[ -z "$expected" ]]; then
+		log "ERROR" "Could not find checksum for $archive_name in checksum file"
+		log "ERROR" "Checksum file contents:"
+		head -5 "$checksum_path" >&2
+		exit 3
+	fi
+
+	echo "$expected"
+}
+
+#
 # Verify checksum — auto-detects algorithm (sha512 > sha256 > sha1 > md5)
 #
 verify_checksum() {
@@ -352,34 +389,7 @@ verify_checksum() {
 	fi
 
 	local expected_checksum
-
-	log "DEBUG" "Checking checksum file format..."
-
-	# Try to find checksum paired with filename (format: "checksum  filename")
-	expected_checksum=$(grep -F "$archive_name" "$checksum_path" 2>/dev/null | awk '{print $1}' | head -n1 || true)
-	log "DEBUG" "Grep result for filename pattern: '$expected_checksum'"
-
-	# Fall back to checksum-only format (single-line file)
-	if [[ -z "$expected_checksum" ]]; then
-		log "DEBUG" "No filename pattern found, checking for checksum-only format..."
-		local line_count
-		line_count=$(wc -l < "$checksum_path" 2>/dev/null || echo "0")
-		log "DEBUG" "Checksum file line count: $line_count"
-
-		if [[ $line_count -le 1 ]]; then
-			expected_checksum=$(tr -d '[:space:]' < "$checksum_path" 2>/dev/null || true)
-			if [[ -n "$expected_checksum" ]]; then
-				log "DEBUG" "Using checksum-only format: '$expected_checksum'"
-			fi
-		fi
-	fi
-
-	if [[ -z "$expected_checksum" ]]; then
-		log "ERROR" "Could not find checksum for $archive_name in checksum file"
-		log "ERROR" "Checksum file contents:"
-		head -5 "$checksum_path" >&2
-		exit 3
-	fi
+	expected_checksum=$(get_expected_checksum "$checksum_path" "$archive_name")
 
 	# Determine algorithm: explicit flag > auto-detect by digest length > try-in-order
 	local algo=""
@@ -479,23 +489,22 @@ install_direct_binary() {
 		exit 5
 	fi
 	
+	# When dest_path is a directory, install under binary_name
+	if [[ "$dest_path" == */ ]] || [[ -d "$dest_path" ]]; then
+		dest_path="${dest_path%/}/$binary_name"
+	fi
+
 	# Check for filename conflicts
 	if [[ -f "$dest_path" ]]; then
 		log "WARN" "File already exists, overwriting: $dest_path"
 	fi
-	
+
 	# Copy the binary to destination
 	if ! install -C "$binary_path" "$dest_path"; then
 		log "ERROR" "Failed to install binary to $dest_path"
 		exit 5
 	fi
-	
-	# Set executable permission
-	if ! chmod +x "$dest_path"; then
-		log "ERROR" "Failed to set executable permission on $dest_path"
-		exit 5
-	fi
-	
+
 	log "INFO" "Successfully installed direct binary: $(basename "$dest_path")"
 }
 
@@ -548,107 +557,198 @@ extract_archive() {
 }
 
 #
-# Install binaries from extracted archive
+# Extract only the paths in INSTALL_PATHS from the archive into extract_dir.
+# Literal paths (no glob chars) rely on tar's built-in directory recursion so
+# a bare name like "flutter" extracts the whole subtree.
+# Glob patterns (containing *, ?, or [) are passed with --wildcards.
+#
+extract_selective() {
+	local archive_path="$1"
+	local archive_name="$2"
+	local extract_dir="$3"
+
+	log "INFO" "Selectively extracting from: $archive_name"
+	log "DEBUG" "Patterns: ${INSTALL_PATHS[*]}"
+
+	if [[ "$DRY_RUN" == true ]]; then
+		log "INFO" "[DRY RUN] Would extract: ${INSTALL_PATHS[*]}"
+		return 0
+	fi
+
+	if ! mkdir -p "$extract_dir"; then
+		log "ERROR" "Failed to create extraction directory: $extract_dir"
+		exit 4
+	fi
+
+	# Split patterns into literal vs glob so each group gets the right tar flags
+	local -a literal_patterns=()
+	local -a glob_patterns=()
+	for pattern in "${INSTALL_PATHS[@]}"; do
+		if [[ "$pattern" == *[\*\?\[]* ]]; then
+			glob_patterns+=("$pattern")
+		else
+			literal_patterns+=("$pattern")
+		fi
+	done
+
+	case "$archive_name" in
+		*.tar.gz|*.tgz|*.tar.xz)
+			local flag
+			[[ "$archive_name" == *.tar.xz ]] && flag="-xJf" || flag="-xzf"
+			if [[ ${#literal_patterns[@]} -gt 0 ]]; then
+				if ! tar "$flag" "$archive_path" -C "$extract_dir" "${literal_patterns[@]}"; then
+					log "ERROR" "Failed to extract from archive: ${literal_patterns[*]}"
+					exit 4
+				fi
+			fi
+			if [[ ${#glob_patterns[@]} -gt 0 ]]; then
+				for pattern in "${glob_patterns[@]}"; do
+					local tar_err
+					if ! tar_err=$(tar "$flag" "$archive_path" -C "$extract_dir" --wildcards "$pattern" 2>&1); then
+						if echo "$tar_err" | grep -qF "Not found in archive"; then
+							log "INFO" "No entries matched glob pattern (skipping): $pattern"
+						else
+							log "ERROR" "Failed to extract glob pattern from archive: $pattern"
+							echo "$tar_err" >&2
+							exit 4
+						fi
+					fi
+				done
+			fi
+			;;
+		*.zip)
+			if ! unzip -q "$archive_path" "${INSTALL_PATHS[@]}" -d "$extract_dir"; then
+				log "ERROR" "Failed to selectively extract from zip archive"
+				exit 4
+			fi
+			;;
+		*)
+			log "ERROR" "Unsupported archive format for selective extraction: $archive_name"
+			exit 4
+			;;
+	esac
+}
+
+#
+# Extract archive to dest preserving the full directory tree
+#
+install_tree() {
+	local archive_path="$1"
+	local dest_dir="$2"
+	local archive_name="$3"
+
+	log "INFO" "Extracting archive tree to: $dest_dir"
+
+	if [[ "$DRY_RUN" == true ]]; then
+		log "INFO" "[DRY RUN] Would extract $archive_name to $dest_dir"
+		return 0
+	fi
+
+	if ! mkdir -p "$dest_dir"; then
+		log "ERROR" "Failed to create destination directory: $dest_dir"
+		exit 5
+	fi
+
+	case "$archive_name" in
+		*.tar.gz|*.tgz)
+			if ! tar -xzf "$archive_path" -C "$dest_dir"; then
+				log "ERROR" "Failed to extract tar.gz archive to $dest_dir"
+				exit 4
+			fi
+			;;
+		*.tar.xz)
+			if ! tar -xJf "$archive_path" -C "$dest_dir"; then
+				log "ERROR" "Failed to extract tar.xz archive to $dest_dir"
+				exit 4
+			fi
+			;;
+		*.zip)
+			if ! unzip -q "$archive_path" -d "$dest_dir"; then
+				log "ERROR" "Failed to extract zip archive to $dest_dir"
+				exit 4
+			fi
+			;;
+		*)
+			log "ERROR" "Unsupported archive format for tree extraction: $archive_name"
+			exit 4
+			;;
+	esac
+
+	log "INFO" "Archive extracted to $dest_dir"
+}
+
+#
+# Install selected paths from an extracted archive into dest_dir.
+# Each entry in INSTALL_PATHS is a shell glob relative to the archive root.
+# Matched files are installed flat (basename only) into dest_dir.
+# Matched directories are copied as a tree (dest_dir/<dirname>).
 #
 install_binaries() {
 	local extract_dir="$1"
 	local dest_dir="$2"
-	
-	log "INFO" "Installing binaries to: $dest_dir"
-	
-	# Create destination directory if it doesn't exist
+
+	log "INFO" "Installing to: $dest_dir"
+	log "DEBUG" "Patterns: ${INSTALL_PATHS[*]}"
+
 	if [[ "$DRY_RUN" == false ]] && ! mkdir -p "$dest_dir"; then
 		log "ERROR" "Failed to create destination directory: $dest_dir"
 		exit 5
 	fi
-	
-	local files_to_install=()
+
 	local installed_count=0
-	
-	# Determine what files to install
-	if [[ ${#INSTALL_PATHS[@]} -gt 0 ]]; then
-		# Use specified paths
-		log "DEBUG" "Installing specified paths: ${INSTALL_PATHS[*]}"
-		files_to_install=("${INSTALL_PATHS[@]}")
-		
-		if [[ "$DRY_RUN" == true ]]; then
-			log "INFO" "[DRY RUN] Would install ${#files_to_install[@]} specified files"
-			for path in "${files_to_install[@]}"; do
-				local basename_file
-				basename_file=$(basename "$path")
-				log "INFO" "[DRY RUN] Would install: $path -> $dest_dir/$basename_file"
-			done
-			return 0
+
+	for path_pattern in "${INSTALL_PATHS[@]}"; do
+		local -a matches
+		mapfile -t matches < <(compgen -G "$extract_dir/$path_pattern" 2>/dev/null)
+
+		if [[ ${#matches[@]} -eq 0 ]]; then
+			log "ERROR" "No match for pattern in archive: $path_pattern"
+			log "ERROR" "Archive contents (first 20):"
+			find "$extract_dir" -maxdepth 3 | sed "s|^$extract_dir/\{0,1\}||" | grep -v '^$' | head -20 | sed 's/^/  /' >&2
+			exit 5
 		fi
-	else
-		# Auto-discover executable files in the archive
-		log "DEBUG" "Auto-discovering executable files in archive"
-		
-		if [[ "$DRY_RUN" == true ]]; then
-			log "INFO" "[DRY RUN] Would auto-discover and install all executable files"
-			return 0
-		fi
-		
-		# Find all files in the extract directory (install all files by default)
-		local all_files=()
-		while IFS= read -r -d '' file; do
-			# Get relative path from extract_dir
-			local rel_path="${file#$extract_dir/}"
-			
-			# Skip if it's a directory or hidden file
-			if [[ -f "$file" && ! "$rel_path" =~ ^\. ]]; then
-				all_files+=("$rel_path")
+
+		for match in "${matches[@]}"; do
+			local item_name
+			item_name=$(basename "$match")
+
+			# .* globs include . and .. — skip them
+			[[ "$item_name" == "." || "$item_name" == ".." ]] && continue
+
+			if [[ "$DRY_RUN" == true ]]; then
+				log "INFO" "[DRY RUN] Would install: ${match#$extract_dir/} -> $dest_dir/$item_name"
+				continue
 			fi
-		done < <(find "$extract_dir" -type f -print0 2>/dev/null)
-		
-		files_to_install=("${all_files[@]}")
-		log "INFO" "Auto-discovered ${#files_to_install[@]} files to install"
-		
-		if [[ ${#files_to_install[@]} -eq 0 ]]; then
-			log "ERROR" "No files found in archive to install"
-			exit 5
-		fi
-	fi
-	
-	# Install the files
-	for path in "${files_to_install[@]}"; do
-		local basename_file
-		basename_file=$(basename "$path")
-		local source_path="$extract_dir/$path"
-		local dest_path="$dest_dir/$basename_file"
-		
-		log "DEBUG" "Installing: $path -> $dest_path"
-		
-		if [[ ! -f "$source_path" ]]; then
-			log "ERROR" "Path not found in archive: $path"
-			log "ERROR" "Available files in extract directory:"
-			find "$extract_dir" -type f | head -10 | sed 's/^/  /' >&2
-			exit 5
-		fi
-		
-		# Check for filename conflicts
-		if [[ -f "$dest_path" ]]; then
-			log "WARN" "File already exists, overwriting: $dest_path"
-		fi
-		
-		if ! install -C "$source_path" "$dest_path"; then
-			log "ERROR" "Failed to install $path to $dest_path"
-			exit 5
-		fi
-		
-		# Set executable permission if the source file was executable
-		# or if we're installing to a typical binary directory
-		if [[ -x "$source_path" ]] || [[ "$dest_dir" =~ bin$ ]]; then
-			if ! chmod +x "$dest_path"; then
-				log "WARN" "Failed to set executable permission on $dest_path"
+
+			if [[ -d "$match" ]]; then
+				if [[ -e "$dest_dir/$item_name" ]]; then
+					log "WARN" "Already exists, overwriting: $dest_dir/$item_name"
+					rm -rf "$dest_dir/$item_name"
+				fi
+				if ! cp -r "$match" "$dest_dir/$item_name"; then
+					log "ERROR" "Failed to copy directory: $match -> $dest_dir/$item_name"
+					exit 5
+				fi
+				log "INFO" "Installed directory: $item_name"
+			else
+				local dest_path="$dest_dir/$item_name"
+				if [[ -e "$dest_path" ]]; then
+					log "WARN" "File already exists, overwriting: $dest_path"
+				fi
+				if ! install -C "$match" "$dest_path"; then
+					log "ERROR" "Failed to install: $match -> $dest_path"
+					exit 5
+				fi
+				if [[ -x "$match" ]] || [[ "${dest_dir%/}" =~ /bin$ ]]; then
+					chmod +x "$dest_path" || log "WARN" "Failed to set executable bit on $dest_path"
+				fi
+				log "INFO" "Installed: $item_name"
 			fi
-		fi
-		
-		log "INFO" "Installed: $basename_file"
-		installed_count=$((installed_count + 1))
+			installed_count=$((installed_count + 1))
+		done
 	done
-	
-	log "INFO" "Successfully installed $installed_count files"
+
+	log "INFO" "Successfully installed $installed_count items"
 }
 
 #
@@ -976,7 +1076,7 @@ main() {
 	fi
 	
 	# Execute main workflow
-	download_file "$URL" "$archive_path" "archive"
+	# Checksum is always downloaded fresh — it drives cache validation below
 	download_file "$CHECKSUM_URL" "$checksum_path" "checksum file"
 
 	# Transform JSON checksum file with jq if requested
@@ -1000,19 +1100,58 @@ main() {
 		fi
 	fi
 
-	verify_checksum "$archive_path" "$checksum_path" "$archive_name"
+	# Content-addressable cache: the expected checksum is the cache key.
+	# Downloads land in a .tmp file first; only promoted to the cache after the
+	# checksum passes, so a bad download never poisons it. Cache hits need no
+	# re-verification — the filename is the proof.
+	if [[ "$DRY_RUN" == true ]]; then
+		download_file "$URL" "$archive_path" "archive"
+		verify_checksum "$archive_path" "$checksum_path" "$archive_name"
+	else
+		local expected_checksum
+		expected_checksum=$(get_expected_checksum "$checksum_path" "$archive_name")
+		local cache_file="$DOWNLOAD_CACHE_DIR/$expected_checksum"
+
+		if [[ ! -f "$cache_file" ]]; then
+			mkdir -p "$DOWNLOAD_CACHE_DIR"
+			# Per-entry advisory lock: multiple concurrent builds share the cache
+			# (sharing=shared on the mount); flock serialises downloads of the same
+			# entry while letting unrelated entries proceed in parallel.
+			# Double-check after acquiring: a concurrent build may have populated
+			# the cache while we waited for the lock.
+			(
+				flock 9
+				if [[ ! -f "$cache_file" ]]; then
+					local tmp_file="${cache_file}.tmp"
+					download_file "$URL" "$tmp_file" "archive"
+					verify_checksum "$tmp_file" "$checksum_path" "$archive_name"
+					mv "$tmp_file" "$cache_file"
+				else
+					log "INFO" "Cache hit (after lock): $archive_name ($expected_checksum)"
+				fi
+			) 9>"${cache_file}.lock"
+		else
+			log "INFO" "Cache hit: $archive_name ($expected_checksum)"
+		fi
+		archive_path="$cache_file"
+	fi
 	
 	if [[ "$INSTALL_PACKAGE" == true ]]; then
 		install_package "$archive_path" "$archive_name"
 		log "INFO" "Download, verification, and package installation completed successfully"
 	elif [[ -n "$INSTALL_TO" ]]; then
-		# Check if the downloaded file is a direct binary or an archive
 		if is_archive "$archive_name"; then
-			extract_archive "$archive_path" "$extract_dir" "$archive_name"
-			install_binaries "$extract_dir" "$INSTALL_TO"
-			log "INFO" "Download, verification, extraction and installation completed successfully"
+			if [[ ${#INSTALL_PATHS[@]} -gt 0 ]]; then
+				# Selective extraction — only decompress the requested paths
+				extract_selective "$archive_path" "$archive_name" "$extract_dir"
+				install_binaries "$extract_dir" "$INSTALL_TO"
+			else
+				# No specific paths — extract full tree into INSTALL_TO
+				install_tree "$archive_path" "$INSTALL_TO" "$archive_name"
+			fi
+			log "INFO" "Download, verification, and extraction completed successfully"
 		else
-			# Handle direct binary installation
+			# Direct binary (not an archive)
 			install_direct_binary "$archive_path" "$INSTALL_TO" "$archive_name"
 			log "INFO" "Download, verification, and direct installation completed successfully"
 		fi

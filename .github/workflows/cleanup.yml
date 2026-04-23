@@ -1,10 +1,10 @@
 name: cleanup
 run-name: Cleanup
 
-# Run daily at 5 AM UTC. Jobs are chained sequentially to avoid hitting GitHub API rate limits.
+# Run daily at 12:00 UTC. Jobs are chained sequentially to avoid hitting GitHub API rate limits.
 on:
   schedule:
-    - cron: '0 5 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch:
 
 # Never cancel a running cleanup job — partial cleanup is worse than no cleanup.

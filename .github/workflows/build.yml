@@ -1,15 +1,11 @@
 name: build
 run-name: Build and push Docker images
 
-# Triggers: every push, nightly at 4 AM UTC, and after Renovate updates dependencies.
+# Run weekdays at 09:00 UTC
 on:
-  push:
   schedule:
-    - cron: '0 4 * * *'
-  workflow_run:
-    # Re-build immediately after Renovate merges a dependency bump.
-    workflows: ["renovate"]
-    types: ["completed"]
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch:
 
 # Cancel any in-progress build for the same ref when a newer one is triggered.
 concurrency:
@@ -22,75 +18,54 @@ permissions:
   actions: write
 
 jobs:
-  # Parse docker-bake.hcl to produce the list of build targets dynamically,
-  # so adding a new Dockerfile doesn't require updating this workflow.
-  discover:
-    runs-on: self-hosted
-    outputs:
-      targets: ${{ steps.list.outputs.targets }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-      - name: List bake targets
-        id: list
-        run: |
-          set -a && source buildargs.conf && set +a
-          targets=$(docker buildx bake --print 2>/dev/null \
-            | jq -c '[.target | keys[] | select(startswith("_") | not)]')
-          echo "targets=$targets" >> $GITHUB_OUTPUT
-
-  # Build and push each target in parallel. Images are only pushed on non-PR events.
   build:
-    needs: discover
     runs-on: self-hosted
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.discover.outputs.targets) }}
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@v6
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+        uses: docker/setup-qemu-action@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-        with:
-          platforms: |-
-            linux/amd64
-            linux/arm64
+      - name: Set up buildx builder
+        run: task setup
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to the Container registry
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           logout: false
 
-      - name: Build and push
+      - name: Read build args
+        id: buildargs
         run: |
-          set -a && source buildargs.conf && set +a
-          # Pass every non-comment line from buildargs.conf as a --set *.args.KEY=VALUE flag.
-          BAKE_ARGS=$(grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/--set *.args./' | tr '\n' ' ')
-          PUSH_FLAG=${{ github.event_name != 'pull_request' && '--push' || '' }}
-          docker buildx bake \
-            $BAKE_ARGS \
-            --set "*.platform=linux/amd64,linux/arm64" \
-            --set "${{ matrix.target }}.cache-from=type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.target }}:buildcache" \
-            --set "${{ matrix.target }}.cache-to=type=registry,ref=ghcr.io/${{ github.repository }}/${{ matrix.target }}:buildcache,mode=max" \
-            $PUSH_FLAG \
-            ${{ matrix.target }}
+          {
+            echo 'set<<EOF'
+            grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
+            echo '*.args.REGISTRY=ghcr.io/pyck-ai/baseimages'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+          grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
+
+      - name: Build and push
+        uses: docker/bake-action@v7
+        with:
+          pull: true
+          push: true
+          set: ${{ steps.buildargs.outputs.set }}
+        env:
+          REGISTRY: ghcr.io/pyck-ai/baseimages

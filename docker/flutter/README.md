@@ -1,0 +1,100 @@
+# Flutter Image
+
+A Flutter + Dart runtime image with a pre-installed RFW (Remote Flutter Widgets) validator. Supports both `linux/amd64` and `linux/arm64`.
+
+## Based on
+
+Our [debian base image](../slim/README.md).
+
+Current version is defined in [`buildargs.conf`](../../buildargs.conf).
+
+## Tags
+
+| Tag | Description |
+|-----|-------------|
+| `flutter:latest` | Latest Flutter version |
+| `flutter:<version>` | Pinned Flutter version |
+
+## What is included
+
+### Flutter toolchain
+
+| Path | Description |
+|------|-------------|
+| `/opt/flutter` | Full Flutter SDK (including bundled Dart SDK) |
+| `/usr/local/bin/flutter` | Symlink to flutter binary |
+| `/usr/local/bin/dart` | Symlink to dart binary |
+
+Flutter analytics and Dart telemetry are disabled at build time.
+
+### arm64 notes
+
+Flutter only ships a Linux x86_64 release archive. For `linux/arm64` builds the image automatically:
+1. Replaces the bundled x86_64 Dart SDK with an arm64 build downloaded from the Dart archive.
+2. Clears pre-compiled snapshots and engine artifacts so Flutter regenerates them for arm64.
+3. Runs `flutter precache` to download arm64 engine artifacts and recompile `flutter_tools.snapshot`.
+
+The precache result is persisted in a BuildKit cache mount keyed by Flutter version + arch, so repeat arm64 builds restore in seconds rather than recompiling.
+
+### RFW validator app
+
+Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) files for syntax errors.
+
+| File | Description |
+|------|-------------|
+| `/opt/rfw-validator/validate_rfw.dart` | Validates `.rfwtxt` (text) and `.rfw` (binary) files |
+| `/opt/rfw-validator/generate_binary.dart` | Converts text RFW to binary format |
+| `/usr/local/bin/validate-rfw` | Entrypoint script for simplified CLI use |
+
+### Additional packages installed
+
+| Package | Purpose |
+|---------|---------|
+| `file` | Used to detect Dart SDK architecture during arm64 fixup |
+| `gosu` | Privilege drop in the entrypoint (for GitHub Actions root-container support) |
+| `libgcc-s1`, `libstdc++6` | C++ runtime libraries required by Flutter |
+| `libglu1-mesa` | OpenGL utility library required by Flutter |
+
+### Default user
+
+Runs as `flutter` (UID 1000, home `/opt/flutter`). `WORKDIR` is `/app`.
+
+## Usage
+
+### Validate an RFW file
+
+```sh
+docker run --rm \
+  -v $(pwd):/app \
+  ghcr.io/pyck-ai/baseimages/flutter:latest \
+  validate-rfw /app/widgets.rfwtxt
+
+docker run --rm \
+  -v $(pwd):/app \
+  ghcr.io/pyck-ai/baseimages/flutter:latest \
+  validate-rfw /app/widgets.rfw
+```
+
+### Convert text RFW to binary format
+
+```sh
+docker run --rm \
+  -v $(pwd):/app \
+  -w /opt/rfw-validator \
+  ghcr.io/pyck-ai/baseimages/flutter:latest \
+  dart run generate_binary.dart /app/input.rfwtxt /app/output.rfw
+```
+
+### Use as a base for a Flutter app image
+
+```dockerfile
+FROM ghcr.io/pyck-ai/baseimages/flutter:latest
+COPY --chown=flutter:flutter . /app
+RUN dart pub get
+```
+
+## Build
+
+```sh
+task build -- flutter
+```

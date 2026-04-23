@@ -1,0 +1,100 @@
+# syntax=docker/dockerfile:1
+
+ARG GOLANG_VERSION=1
+ARG ALPINE_VERSION=
+
+#===============================================================================
+# DEPENDENCIES
+#===============================================================================
+
+FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION} AS golang
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM alpine AS delve
+ARG TARGETPLATFORM TARGETARCH DELVE_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${DELVE_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/go-delve/delve/releases/download/v{version}/dlv_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/go-delve/delve/releases/download/v{version}/checksums.txt"\
+    --install-paths "dlv"\
+    --install-to "/usr/local/bin/"\
+    --verify "dlv version | grep -qF 'Version: {version}'"
+
+FROM alpine AS goarchlint
+ARG TARGETPLATFORM TARGETARCH GOARCHLINT_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOARCHLINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/go-arch-lint_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/checksums.txt"\
+    --install-paths "go-arch-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "go-arch-lint version --output-color=false | grep -qF 'version: {version}'"
+
+FROM alpine AS golangcilint
+ARG TARGETPLATFORM TARGETARCH GOLANGCILINT_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOLANGCILINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-linux-{arch}.tar.gz"\
+    --checksum-url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-checksums.txt"\
+    --install-paths "golangci-lint-{version}-linux-{arch}/golangci-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "golangci-lint --version | grep -qF 'version {version}'"
+
+FROM alpine AS gotestsum
+ARG TARGETPLATFORM TARGETARCH GOTESTSUM_VERSION
+USER 0
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOTESTSUM_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum-{version}-checksums.txt"\
+    --install-paths "gotestsum"\
+    --install-to "/usr/local/bin/"\
+    --verify "gotestsum --version | grep -qF 'version v{version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM alpine
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+ENV GOPATH=/go
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
+ENV GOCACHE=/var/cache/go/
+ENV GOMODCACHE=/go/pkg/mod/
+# Internal Go module proxy with fallback to direct. Mount GOCACHE and GOMODCACHE as volumes in CI to persist across builds.
+ENV GOPROXY=https://go.pyck.cloud,direct
+# All builds are statically linked by default; set CGO_ENABLED=1 explicitly if you need cgo.
+ENV CGO_ENABLED=0
+
+USER 0
+COPY --from=golang /usr/local/go /usr/local/go
+RUN mkdir -p /go/bin
+
+COPY --from=delve /usr/local/bin/dlv /usr/local/bin/
+COPY --from=goarchlint /usr/local/bin/go-arch-lint /usr/local/bin/
+COPY --from=golangcilint /usr/local/bin/golangci-lint /usr/local/bin/
+COPY --from=gotestsum /usr/local/bin/gotestsum /usr/local/bin/
+
+USER nonroot
+WORKDIR /app

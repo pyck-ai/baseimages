@@ -1,0 +1,122 @@
+# syntax=docker/dockerfile:1
+
+FROM debian
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG FLUTTER_VERSION
+
+USER 0
+
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends\
+        file\
+        gosu\
+        libgcc-s1\
+        libglu1-mesa\
+        libstdc++6
+
+# Create flutter user; /opt/flutter is created by the archive extraction below.
+RUN useradd -M -s /bin/bash -u 1000 -d /opt/flutter flutter
+
+# Flutter only publishes a Linux x86_64 archive with no official arm64 Linux
+# release. The archive ships with bin/cache/ pre-populated for x86_64 (Dart SDK,
+# engine artifacts, and a pre-compiled flutter_tools.snapshot). For amd64 this
+# is sufficient. For arm64 the next two steps fix up the cache contents before
+# any flutter command runs. Checksum is pulled from the Flutter releases JSON
+# via --checksum-jq so no separate file needs tracking. The archive extracts as
+# flutter/ so --install-to /opt/ gives /opt/flutter/.
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${FLUTTER_VERSION}"\
+    --url "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_{version}-stable.tar.xz"\
+    --checksum-url "https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json"\
+    --checksum-jq '.releases[] | select(.version == "{version}") | (.sha256 + " flutter_linux_{version}-stable.tar.xz")'\
+    --install-to /opt/\
+    &&\
+    chown -R flutter:flutter /opt/flutter
+
+# arm64 only: replace the bundled x86_64 Dart SDK with an arm64 build. Flutter's
+# bootstrap cannot self-repair a wrong-arch SDK. It tries to exec the existing
+# dart binary before re-downloading, which fails immediately on the wrong
+# architecture. We therefore swap it explicitly here, before any flutter command
+# runs. The Dart version is read from bin/cache/dart-sdk/version inside the
+# archive so no extra ARG is needed. We use `file | awk` on the binary rather
+# than TARGETARCH so this step becomes a no-op automatically if Flutter ever
+# ships an arm64 archive. After swapping we clear *.stamp and artifacts/engine
+# (see the next step for why).
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    case "$TARGETARCH" in\
+        amd64) arch_pat="x86-64" ;;\
+        arm64) arch_pat="aarch64" ;;\
+        *)     arch_pat="$TARGETARCH" ;;\
+    esac &&\
+    dart_arch=$(file /opt/flutter/bin/cache/dart-sdk/bin/dart | awk -F', ' '{print $2}') &&\
+    if [ "$dart_arch" != "$arch_pat" ]; then\
+        dart_version=$(cat /opt/flutter/bin/cache/dart-sdk/version) &&\
+        rm -rf /opt/flutter/bin/cache/dart-sdk &&\
+        download.sh\
+            --var "version=${dart_version}"\
+            --platform-arch "linux/amd64=x64"\
+            --platform-arch "linux/arm64=arm64"\
+            --url "https://storage.googleapis.com/dart-archive/channels/stable/release/{version}/sdk/dartsdk-linux-{arch}-release.zip"\
+            --checksum-url "https://storage.googleapis.com/dart-archive/channels/stable/release/{version}/sdk/dartsdk-linux-{arch}-release.zip.sha256sum"\
+            --install-to /opt/flutter/bin/cache/ &&\
+        rm -rf /opt/flutter/bin/cache/*.stamp /opt/flutter/bin/cache/artifacts/engine &&\
+        chown -R flutter:flutter /opt/flutter/bin/cache;\
+    fi
+
+# arm64 only: recompile flutter_tools.snapshot and download arm64 engine
+# artifacts.
+#
+# flutter_tools.snapshot is a compiled Dart snapshot, not a portable kernel
+# file. The x86_64 version cannot run on an arm64 Dart VM. Flutter recompiles it
+# when its stamp file is missing, which is why we cleared *.stamp above. Note
+# that .dart-sdk.stamp starts with a dot and is NOT matched by the *.stamp glob,
+# so the bootstrap sees the SDK stamp as valid and does not re-download the
+# arm64 Dart SDK we just installed.
+#
+# The x86_64 engine artifacts are also useless on arm64, which is why we cleared
+# artifacts/engine above. flutter precache then re-downloads the arm64 set.
+#
+# The snapshot recompilation is quite slow, so the BuildKit cache mount persists
+# the full bin/cache/ via an atomic rsync so subsequent arm64 builds restore in
+# seconds. amd64 skips this step entirely since the archive already has
+# everything it needs.
+USER flutter
+RUN --mount=type=cache,id=flutter-precache,target=/var/cache/flutter-precache,sharing=locked,uid=1000,gid=1000\
+    if [ "$TARGETARCH" != "amd64" ]; then\
+        cache_dir="/var/cache/flutter-precache/${FLUTTER_VERSION}-${TARGETARCH}" &&\
+        if [ -d "$cache_dir" ]; then\
+            rsync -a "$cache_dir/." /opt/flutter/bin/cache/;\
+        else\
+            /opt/flutter/bin/flutter precache &&\
+            tmp_dir="$(dirname "$cache_dir")/.tmp-$$" &&\
+            rsync -a /opt/flutter/bin/cache/. "$tmp_dir" &&\
+            mv "$tmp_dir" "$cache_dir";\
+        fi;\
+    fi
+
+RUN /opt/flutter/bin/flutter config --no-analytics &&\
+    /opt/flutter/bin/dart --disable-analytics
+
+# Symlink flutter/dart binaries from flutter/bin into PATH and create app dir
+USER root
+RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \; &&\
+    install -d -o flutter -g flutter /opt/rfw-validator
+
+# Set up the RFW validator app
+WORKDIR /opt/rfw-validator
+COPY --chown=flutter:flutter pubspec.yaml ./
+USER flutter
+RUN dart pub get
+COPY --chown=flutter:flutter validate_rfw.dart generate_binary.dart ./
+
+USER root
+COPY entrypoint.sh /usr/local/bin/validate-rfw
+RUN chmod +x /usr/local/bin/validate-rfw
+
+USER flutter
+WORKDIR /app

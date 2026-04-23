@@ -1,0 +1,45 @@
+# Rover Image
+
+Apollo GraphQL tooling image providing the [Rover CLI](https://www.apollographql.com/docs/rover/) for schema management and supergraph operations.
+
+## Variants
+
+| Image | Based on | Tags |
+|-------|----------|------|
+| Debian | our [debian base](../slim/README.md) | see below |
+
+Current version is defined in [`buildargs.conf`](../../buildargs.conf).
+
+### Tags
+
+| Tag | Description |
+|-----|-------------|
+| `rover:latest` | Latest Rover on Debian |
+| `rover:<version>` | Pinned Rover version on Debian |
+
+## What is included
+
+### Rover CLI
+
+| Binary | Path | Description |
+|--------|------|-------------|
+| `rover` | `/usr/local/bin/rover` | Apollo Rover CLI for schema registry and supergraph operations |
+
+Downloaded with checksum verification via `download.sh`. Supports `linux/amd64` and `linux/arm64`.
+
+### Default user
+
+Runs as `nonroot` (UID/GID 65532). `WORKDIR` is `/app`.
+
+## Usage
+
+```dockerfile
+FROM ghcr.io/pyck-ai/baseimages/rover:latest
+RUN rover graph check my-graph@current --schema ./schema.graphql
+```
+
+## Build
+
+```sh
+task build -- rover
+```
