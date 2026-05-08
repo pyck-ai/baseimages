@@ -44,6 +44,22 @@ case "$COMMAND" in
     dart run generate_binary.dart "$@"
     ;;
 
+  workflowgen)
+    shift || true
+    if [ $# -eq 0 ]; then
+      echo "Usage: docker run ... workflowgen [-v] [--dry-run] [--scaffold] <glob>..."
+      echo ""
+      echo "Stitch *.rfwtxt files into dist/widgets.rfwtxt, or scaffold"
+      echo "flutter/index.rfwtxt from BPMN user tasks (--scaffold)."
+      exit 1
+    fi
+    # Preserve caller's cwd so relative globs and dist/ output land in /app.
+    # We cd into /opt/rfw-validator so `dart run` can resolve pub deps.
+    export WORKFLOWGEN_PWD="$PWD"
+    cd /opt/rfw-validator
+    dart run workflowgen.dart "$@"
+    ;;
+
   bash|sh)
     exec "$@"
     ;;

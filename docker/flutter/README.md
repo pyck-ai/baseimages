@@ -57,13 +57,14 @@ The precache result is persisted in a BuildKit cache mount keyed by Flutter vers
 
 ### RFW validator app
 
-Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) files for syntax errors.
+Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) files for syntax errors and stitches/scaffolds workflow widget bundles.
 
 | File | Description |
 |------|-------------|
 | `/opt/rfw-validator/validate_rfw.dart` | Validates `.rfwtxt` (text) and `.rfw` (binary) files |
 | `/opt/rfw-validator/generate_binary.dart` | Converts text RFW to binary format |
-| `/usr/local/bin/validate-rfw` | Entrypoint script for simplified CLI use |
+| `/opt/rfw-validator/workflowgen.dart` | Stitches per-workflow `.rfwtxt` into `dist/widgets.rfwtxt`, or scaffolds `flutter/index.rfwtxt` from BPMN user tasks |
+| `/usr/local/bin/validate-rfw` | Entrypoint script for simplified CLI use (dispatches `validate-rfw`, `generate-binary`, `workflowgen`) |
 
 ### Additional tools
 
@@ -117,6 +118,29 @@ docker run --rm \
   ghcr.io/pyck-ai/baseimages/flutter:latest \
   dart run generate_binary.dart /app/input.rfwtxt /app/output.rfw
 ```
+
+### Stitch / scaffold workflow widgets
+
+Stitch every per-workflow `.rfwtxt` under `workflows/` into `dist/widgets.rfwtxt`:
+
+```sh
+docker run --rm \
+  -v $(pwd):/app \
+  ghcr.io/pyck-ai/baseimages/flutter:latest \
+  workflowgen "workflows/**/*.rfwtxt"
+```
+
+Scaffold (or sync) `flutter/index.rfwtxt` next to each `.bpmn`, adding a stub
+widget for any user task annotated with `ID: WidgetName`:
+
+```sh
+docker run --rm \
+  -v $(pwd):/app \
+  ghcr.io/pyck-ai/baseimages/flutter:latest \
+  workflowgen --scaffold "workflows/**/*.bpmn"
+```
+
+Flags: `-v` verbose, `--dry-run` print without writing.
 
 ### Use as a base for a Flutter app image
 

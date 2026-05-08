@@ -5,3 +5,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Dart / Flutter local tooling artifacts
+.dart_tool/
+pubspec.lock

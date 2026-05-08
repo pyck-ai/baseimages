@@ -8,3 +8,5 @@ environment:
 
 dependencies:
   rfw: ^1.0.0
+  glob: ^2.1.0
+  path: ^1.8.0

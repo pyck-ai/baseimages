@@ -140,7 +140,7 @@ RUN useradd -M -s /bin/bash -u 1000 -d /opt/flutter flutter
 
 COPY --from=rfw-validator /opt/flutter /opt/flutter
 COPY --from=rfw-validator /opt/rfw-validator /opt/rfw-validator
-COPY --chown=flutter:flutter validate_rfw.dart generate_binary.dart /opt/rfw-validator/
+COPY --chown=flutter:flutter validate_rfw.dart generate_binary.dart workflowgen.dart /opt/rfw-validator/
 
 RUN find /opt/flutter/bin -maxdepth 1 \( -type f -o -type l \) -exec ln -sf {} /usr/local/bin/ \;
 
