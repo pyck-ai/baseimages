@@ -36,6 +36,8 @@ env:
 jobs:
   # Parse docker-bake.hcl to produce the list of GHCR image names dynamically,
   # so adding a new image doesn't require updating this workflow.
+  # Names come from the repository part of each target's tags (e.g. golang),
+  # not the bake target keys (e.g. golang-alpine) — the latter aren't packages.
   discover:
     name: Discover container images
     runs-on: self-hosted
@@ -52,7 +54,7 @@ jobs:
         run: |
           set -a && source buildargs.conf && set +a
           images=$(docker buildx bake --print 2>/dev/null \
-            | jq -c '[.target | keys[] | select(startswith("_") | not)]')
+            | jq -c '[.target[].tags[]? | split(":")[0] | split("/") | last] | unique')
           echo "images=$images" >> $GITHUB_OUTPUT
 
   # Delete workflow runs older than WORKFLOWS_RETAIN_DAYS, keeping at least 1 per workflow.
