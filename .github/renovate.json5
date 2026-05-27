@@ -21,8 +21,11 @@
 	"minimumReleaseAge": "3 days",
 	// Cap open Renovate PRs to avoid flooding the PR queue.
 	"prConcurrentLimit": 5,
-	// Don't open a PR while the stability timer (minimumReleaseAge) is still running.
-	"prCreation": "not-pending",
+	// Open PRs immediately. Automerge still waits for the stability timer
+	// (minimumReleaseAge) and a green build. Do NOT use "not-pending" here: the build
+	// runs on pull_request, which can't fire until the PR exists, so "not-pending" would
+	// deadlock (no PR -> no build -> branch status never leaves pending -> no PR).
+	"prCreation": "immediate",
 	"labels": [
 		"renovate"
 	],
@@ -87,6 +90,22 @@
 			"matchPackageNames": ["golang"],
 			"matchManagers": ["custom.regex"],
 			"groupName": "golang base images"
+		},
+		{
+			// Digest/pin updates carry no release timestamp, so the default
+			// minimumReleaseAgeBehaviour=timestamp-required would mark them pending forever
+			// and never open/merge a PR. Allow them through the age gate (they still need a
+			// green build to automerge).
+			"description": "Digests have no release timestamp; don't pend them forever",
+			"matchUpdateTypes": ["digest", "pin"],
+			"minimumReleaseAgeBehaviour": "timestamp-optional"
+		},
+		{
+			// The anthropic-claude custom datasource is a plain-text endpoint with no
+			// release timestamp, so it hits the same timestamp-required pending trap.
+			"description": "Claude custom datasource has no release timestamp",
+			"matchDepNames": ["claude"],
+			"minimumReleaseAgeBehaviour": "timestamp-optional"
 		}
 	],
 	// GitHub's built-in vulnerability alerts are redundant when OSV scanning is on.

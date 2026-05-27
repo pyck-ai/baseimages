@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: '0 9 * * 1-5'
   workflow_dispatch:
+  # Validate every PR before merge so Renovate (and humans) always have a status check
+  # to gate automerge on. PR runs build but do not push and do not export build cache
+  # (see push:/cache-to below).
+  pull_request:
 
 # Cancel any in-progress build for the same ref when a newer one is triggered.
 concurrency:
@@ -53,6 +57,9 @@ jobs:
             echo "stage-3-targets=$stage3"
             echo 'bakeargs-set<<EOF'
             grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
+            # On PRs, disable cache export so an unmerged (possibly broken) bump can't
+            # poison the shared registry build cache that scheduled builds rely on.
+            if [ "${{ github.event_name }}" = "pull_request" ]; then echo '*.cache-to='; fi
             echo 'EOF'
           } >> $GITHUB_OUTPUT
 
@@ -97,7 +104,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          push: true
+          # Build only on PRs; publish to the registry on schedule/manual runs.
+          push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
           REGISTRY: ${{ env.REGISTRY }}
@@ -144,7 +152,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          push: true
+          # Build only on PRs; publish to the registry on schedule/manual runs.
+          push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
           REGISTRY: ${{ env.REGISTRY }}
@@ -190,7 +199,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          push: true
+          # Build only on PRs; publish to the registry on schedule/manual runs.
+          push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
           REGISTRY: ${{ env.REGISTRY }}
