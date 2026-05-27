@@ -11,9 +11,11 @@
 		"github-actions",
 		"custom.regex"
 	],
+	// Interpret all schedule strings (e.g. automergeSchedule) in Berlin local time.
+	"timezone": "Europe/Berlin",
 	// Automerge only during business hours to avoid unattended merges at night or on weekends.
 	"automergeSchedule": [
-		"after 9am and before 3pm every weekday"
+		"after 9am and before 4pm every weekday"
 	],
 	// Squash keeps history linear and the resulting commit is signed by GitHub,
 	// satisfying the repo's linear-history and signed-commits rules. GitHub's
