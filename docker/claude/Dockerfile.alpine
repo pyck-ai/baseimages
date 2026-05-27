@@ -16,7 +16,8 @@ COPY <<EOF /tmp/claude_fix.c
 #include <sys/syscall.h>
 #include <unistd.h>
 
-ssize_t posix_getdents(int fd, void *buf, size_t count) {
+ssize_t posix_getdents(int fd, void *buf, size_t count, int flags) {
+    (void)flags;
     return syscall(SYS_getdents64, fd, buf, count);
 }
 EOF
