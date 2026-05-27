@@ -15,8 +15,10 @@
 	"automergeSchedule": [
 		"after 9am and before 3pm every weekday"
 	],
-	// Fast-forward keeps the git history linear; no merge commits from Renovate.
-	"automergeStrategy": "fast-forward",
+	// Squash keeps history linear and the resulting commit is signed by GitHub,
+	// satisfying the repo's linear-history and signed-commits rules. GitHub's
+	// merge API has no fast-forward option, and rebase merges can't be signed.
+	"automergeStrategy": "squash",
 	// Wait 3 days before opening a PR so yanked or broken releases have time to be caught.
 	"minimumReleaseAge": "3 days",
 	// Cap open Renovate PRs to avoid flooding the PR queue.
