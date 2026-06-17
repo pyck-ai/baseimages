@@ -205,3 +205,23 @@ jobs:
         env:
           REGISTRY: ${{ env.REGISTRY }}
 
+  # Single aggregate gate for the branch-protection required status check. Matrix
+  # jobs can't be required directly: their targets are discovered dynamically, and
+  # a matrix job skipped via a failed `needs` reports a bare context that a required
+  # check treats as passing. This job has a stable name, runs even when upstream
+  # stages fail (if: always()), and fails unless every stage succeeded — so
+  # requiring just "gate" gates the whole pipeline without touching CI when images
+  # are added or removed.
+  gate:
+    needs: [discover, stage-1, stage-2, stage-3]
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - name: Verify all stages succeeded
+        run: |
+          results="${{ needs.discover.result }} ${{ needs.stage-1.result }} ${{ needs.stage-2.result }} ${{ needs.stage-3.result }}"
+          for r in $results; do
+            [ "$r" = "success" ] || { echo "A stage did not succeed: $results"; exit 1; }
+          done
+          echo "All stages succeeded."
+
