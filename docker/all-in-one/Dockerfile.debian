@@ -13,5 +13,19 @@ ENV PATH="/bun/bin:${PATH}"
 RUN mkdir -p /bun/bin
 COPY --from=typescript /usr/local/bin/bun /usr/local/bin/
 COPY --from=claude /usr/local/bin/claude /usr/local/bin/
+COPY --from=claude /usr/local/bin/opencode /usr/local/bin/
+
+# Python (Debian only — uv has no musl Python distributions). The managed
+# interpreter lives under /usr/local/python with symlinks + uv/uvx/ruff in
+# /usr/local/bin; the env vars keep uv pointed at the managed install.
+ENV UV_PYTHON_INSTALL_DIR=/usr/local/python
+ENV UV_PYTHON_PREFERENCE=only-managed
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+COPY --from=python /usr/local/python /usr/local/python
+COPY --from=python\
+     /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/ruff\
+     /usr/local/bin/python* /usr/local/bin/pip* /usr/local/bin/pydoc*\
+     /usr/local/bin/
 
 WORKDIR /app

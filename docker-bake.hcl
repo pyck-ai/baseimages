@@ -42,9 +42,10 @@ function "vtags" {
 function "all_in_one_tags" {
   params = [registry, distro]
   result = concat(
-    vtags(registry, "all-in-one", GOLANG_VERSION, "${distro}-golang-", ""),
-    vtags(registry, "all-in-one", BUN_VERSION,    "${distro}-bun-",    ""),
-    vtags(registry, "all-in-one", CLAUDE_VERSION, "${distro}-claude-", ""),
+    vtags(registry, "all-in-one", GOLANG_VERSION,   "${distro}-golang-",   ""),
+    vtags(registry, "all-in-one", BUN_VERSION,      "${distro}-bun-",      ""),
+    vtags(registry, "all-in-one", CLAUDE_VERSION,   "${distro}-claude-",   ""),
+    vtags(registry, "all-in-one", OPENCODE_VERSION, "${distro}-opencode-", ""),
   )
 }
 
@@ -449,6 +450,7 @@ target "all-in-one-debian" {
     "typescript"    = "target:typescript-debian"
     "claude"        = "target:agents-debian"
     "rover"         = "target:rover-debian"
+    "python"        = "target:python-debian"
   }
   tags = concat(
     [
@@ -456,7 +458,8 @@ target "all-in-one-debian" {
       "${REGISTRY}/all-in-one:debian",
     ],
     all_in_one_tags(REGISTRY, "debian-${DEBIAN_RELEASE}"),
-    vtags(REGISTRY, "all-in-one", ROVER_VERSION, "debian-${DEBIAN_RELEASE}-rover-", ""),
+    vtags(REGISTRY, "all-in-one", ROVER_VERSION,  "debian-${DEBIAN_RELEASE}-rover-",  ""),
+    vtags(REGISTRY, "all-in-one", PYTHON_VERSION, "debian-${DEBIAN_RELEASE}-python-", ""),
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian,mode=max"]

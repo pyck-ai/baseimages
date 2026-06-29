@@ -27,8 +27,9 @@ Each included tool gets a set of version tags in the form `<distro>-<tool>-<vers
 | `all-in-one:alpine-<major>-golang-<version>` | `all-in-one:alpine-3-golang-1.26.1` |
 | `all-in-one:alpine-<major>-bun-<version>` | `all-in-one:alpine-3-bun-1.2.3` |
 | `all-in-one:alpine-<major>-claude-<version>` | `all-in-one:alpine-3-claude-1.2.3` |
+| `all-in-one:alpine-<major>-opencode-<version>` | `all-in-one:alpine-3-opencode-1.2.3` |
 
-The Debian variant also tags by Rover version:
+The Debian variant also tags by Rover and Python version:
 
 | Tag pattern | Example |
 |-------------|---------|
@@ -36,6 +37,8 @@ The Debian variant also tags by Rover version:
 | `all-in-one:debian-<release>-rover-<version>` | `all-in-one:debian-trixie-rover-0.38.0` |
 | `all-in-one:debian-<release>-bun-<version>` | `all-in-one:debian-trixie-bun-1.2.3` |
 | `all-in-one:debian-<release>-claude-<version>` | `all-in-one:debian-trixie-claude-1.2.3` |
+| `all-in-one:debian-<release>-opencode-<version>` | `all-in-one:debian-trixie-opencode-1.2.3` |
+| `all-in-one:debian-<release>-python-<version>` | `all-in-one:debian-trixie-python-3.13` |
 
 ## What is included
 
@@ -46,8 +49,10 @@ Everything from the respective [golang image](../golang/README.md), plus:
 | [Bun](https://bun.sh) | `bun` | musl | glibc | Binary copied from the `typescript` image, `BUN_VERSION` in `buildargs.conf` |
 | [Rover](https://www.apollographql.com/docs/rover/) | `rover` | — | glibc | Binary copied from the `rover` image, `ROVER_VERSION` in `buildargs.conf` |
 | [Claude Code](https://claude.ai/code) | `claude` | musl + shim | glibc | Binary copied from the `agents` image, `CLAUDE_VERSION` in `buildargs.conf` |
+| [opencode](https://opencode.ai) | `opencode` | musl | glibc | Binary copied from the `agents` image, `OPENCODE_VERSION` in `buildargs.conf` |
+| [Python](https://www.python.org) (+ [uv](https://github.com/astral-sh/uv), [Ruff](https://github.com/astral-sh/ruff)) | `python`, `uv`, `uvx`, `ruff` | — | glibc | Copied from the `python` image, `PYTHON_VERSION` / `UV_VERSION` / `RUFF_VERSION` in `buildargs.conf` |
 
-Rover is not included in the Alpine variant — it only ships glibc binaries, which are incompatible with Alpine's musl libc.
+Rover and Python are not included in the Alpine variant — Rover only ships glibc binaries, and uv does not yet publish musl Python distributions; both are incompatible with Alpine's musl libc.
 
 Refer to the [golang README](../golang/README.md) and [base README](../slim/README.md) for the full inherited toolset and environment variables.
 
@@ -58,6 +63,10 @@ Refer to the [golang README](../golang/README.md) and [base README](../slim/READ
 | `BUN_INSTALL` | `/bun` | Bun global install prefix |
 | `PATH` | prepends `/bun/bin` | Global Bun-installed binaries on PATH |
 | `LD_PRELOAD` | `/usr/local/lib/claude_fix.so` | Alpine only: `posix_getdents` shim for Claude |
+| `UV_PYTHON_INSTALL_DIR` | `/usr/local/python` | Debian only: where uv's managed Python lives |
+| `UV_PYTHON_PREFERENCE` | `only-managed` | Debian only: always use the uv-managed Python |
+| `PYTHONDONTWRITEBYTECODE` | `1` | Debian only: suppress `.pyc` generation |
+| `PYTHONUNBUFFERED` | `1` | Debian only: unbuffered stdout/stderr |
 
 ### Default user
 
