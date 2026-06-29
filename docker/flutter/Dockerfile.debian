@@ -4,7 +4,7 @@
 # FLUTTER SDK
 #===============================================================================
 
-# Uses slim (debian context) as base so that changes to the aws→slim chain
+# Uses slim (debian context) as base so that changes to the slim base
 # only invalidate the thin RESULT stage, not the expensive SDK download.
 FROM debian AS flutter-sdk
 

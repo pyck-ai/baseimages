@@ -12,52 +12,16 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 | `golang:latest` | Go toolchain + CI tools (Alpine variant) | [docker/golang](docker/golang/README.md) |
 | `golang:debian` | Go toolchain + CI tools (Debian variant) | [docker/golang](docker/golang/README.md) |
 | `nginx` | Unprivileged nginx for SPAs with OTel support | [docker/nginx](docker/nginx/README.md) |
-| `claude:latest` | Claude Code CLI for agent pipelines (Alpine) | [docker/claude](docker/claude/README.md) |
-| `claude:debian` | Claude Code CLI for agent pipelines (Debian) | [docker/claude](docker/claude/README.md) |
+| `agents:latest` | Claude Code + opencode CLIs for agent pipelines (Alpine) | [docker/agents](docker/agents/README.md) |
+| `agents:debian` | Claude Code + opencode CLIs for agent pipelines (Debian) | [docker/agents](docker/agents/README.md) |
 | `flutter` | Flutter + Dart runtime with RFW validator | [docker/flutter](docker/flutter/README.md) |
 | `typescript:latest` | TypeScript/JS runtime powered by Bun (Alpine) | [docker/typescript](docker/typescript/README.md) |
 | `typescript:debian` | TypeScript/JS runtime powered by Bun (Debian) | [docker/typescript](docker/typescript/README.md) |
 | `rover` | Apollo Rover CLI for schema registry and supergraph operations | [docker/rover](docker/rover/README.md) |
-| `aws:latest` | AWS CLI (Alpine) | [docker/aws](docker/aws/README.md) |
-| `aws:debian` | AWS CLI (Debian) — base for the flutter image | [docker/aws](docker/aws/README.md) |
+| `python` | Python runtime with uv + Ruff (Debian only) | [docker/python](docker/python/README.md) |
 | `all-in-one:alpine` | Full toolset in a single Alpine image | [docker/all-in-one](docker/all-in-one/README.md) |
 | `all-in-one:debian` | Full toolset in a single Debian image | [docker/all-in-one](docker/all-in-one/README.md) |
 
-## Dependency graph
-
-```mermaid
-graph LR
-  slim-alpine["slim:alpine"]
-  slim-debian["slim:debian"]
-  nginx-base["nginxinc/nginx-unprivileged"]
-
-  slim-alpine --> static
-  slim-alpine --> golang-alpine["golang:alpine"]
-  slim-alpine --> claude-alpine["claude:alpine"]
-  slim-alpine --> typescript-alpine["typescript:alpine"]
-  slim-alpine --> aws
-
-  slim-debian --> golang-debian["golang:debian"]
-  slim-debian --> claude-debian["claude:debian"]
-  slim-debian --> aws-debian["aws:debian"]
-  slim-debian --> rover
-  slim-debian --> typescript-debian["typescript:debian"]
-  aws-debian --> flutter
-
-  golang-alpine --> aio-alpine["all-in-one:alpine"]
-  claude-alpine  --> aio-alpine
-  typescript-alpine --> aio-alpine
-  flutter --> aio-alpine
-  rover   --> aio-alpine
-
-  golang-debian --> aio-debian["all-in-one:debian"]
-  claude-debian  --> aio-debian
-  typescript-debian --> aio-debian
-  flutter --> aio-debian
-  rover   --> aio-debian
-
-  nginx-base --> nginx
-```
 
 ## Versioning
 
@@ -80,18 +44,12 @@ task build
 ### Build a specific group or target
 
 ```sh
-task build -- slim              # alpine + debian slim images
 task build -- static            # scratch/static image
-task build -- golang            # both golang variants
-task build -- nginx             # nginx SPA image
-task build -- claude            # Claude Code CLI image
-task build -- flutter           # Flutter + Dart image
-task build -- typescript        # TypeScript/Bun image (both variants)
-task build -- rover             # Apollo Rover CLI image
-task build -- aws               # AWS CLI image
-task build -- all-in-one        # all-in-one image (both variants)
+task build -- slim              # alpine + debian slim images
 task build -- slim-alpine       # alpine slim only
-task build -- golang-alpine     # Go alpine only
+task build -- golang            # both golang variants
+task build -- golang-debian     # Go debian only
+task build -- all-in-one        # all-in-one image (both variants)
 ```
 
 ### Build a specific arch only
@@ -100,21 +58,36 @@ task build -- golang-alpine     # Go alpine only
 task build ARCH=amd64 -- slim-alpine
 ```
 
-## Repository layout
+## Dependency graph
 
-```
-buildargs.conf        # pinned versions for all tools and base images
-docker-bake.hcl       # Docker Bake targets and tag definitions
-docker/
-  slim/               # Alpine and Debian slim images
-  static/             # Scratch image for static binaries
-  golang/             # Go toolchain images
-  nginx/              # Unprivileged nginx for SPAs
-  claude/             # Claude Code CLI
-  flutter/            # Flutter + Dart runtime with RFW validator
-  typescript/         # TypeScript/JS runtime (Bun)
-  rover/              # Apollo Rover CLI
-  aws/                # AWS CLI v2
-  all-in-one/         # All-in-one image (Alpine + Debian)
-Taskfile.yml          # build and test tasks
+```mermaid
+graph LR
+  slim-alpine["slim:alpine"]
+  slim-debian["slim:debian"]
+  nginx-base["nginxinc/nginx-unprivileged"]
+
+  slim-alpine --> static
+  slim-alpine --> golang-alpine["golang:alpine"]
+  slim-alpine --> agents-alpine["agents:alpine"]
+  slim-alpine --> typescript-alpine["typescript:alpine"]
+  slim-alpine --> flutter-alpine["flutter:alpine"]
+
+  slim-debian --> golang-debian["golang:debian"]
+  slim-debian --> agents-debian["agents:debian"]
+  slim-debian --> typescript-debian["typescript:debian"]
+  slim-debian --> flutter-debian["flutter:debian"]
+  slim-debian --> python-debian["python:debian"]
+  slim-debian --> rover
+
+  golang-alpine --> aio-alpine["all-in-one:alpine"]
+  agents-alpine --> aio-alpine
+  typescript-alpine --> aio-alpine
+
+  golang-debian --> aio-debian["all-in-one:debian"]
+  agents-debian --> aio-debian
+  typescript-debian --> aio-debian
+  rover --> aio-debian
+  python-debian --> aio-debian
+
+  nginx-base --> nginx
 ```
