@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+FROM debian
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG CLAUDE_VERSION
+ARG OPENCODE_VERSION
+
+USER 0
+
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${CLAUDE_VERSION}"\
+    --var "bucket=claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/linux-{arch}/claude"\
+    --checksum-url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/manifest.json"\
+    --checksum-jq '.platforms["linux-{arch}"] | (.checksum + " " + .binary)'\
+    --install-to "/usr/local/bin/"\
+    --verify 'claude --version | grep -qF "{version}"'
+
+# opencode checksums come from the GitHub releases-by-tag API: each asset carries
+# a `digest` ("sha256:...") field, which --checksum-jq rewrites into a
+# "<sha256>  <name>" line so the standard verification path is unchanged.
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${OPENCODE_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/anomalyco/opencode/releases/download/v{version}/opencode-linux-{arch}.tar.gz"\
+    --checksum-url "https://api.github.com/repos/anomalyco/opencode/releases/tags/v{version}"\
+    --checksum-jq '.assets[] | select(.name == "opencode-linux-{arch}.tar.gz") | (.digest | sub("sha256:"; "")) + "  " + .name'\
+    --install-paths "opencode"\
+    --install-to "/usr/local/bin/"\
+    --verify 'opencode --version | grep -qF "{version}"'
+
+USER nonroot
+WORKDIR /app

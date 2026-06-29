@@ -17,6 +17,7 @@ variable "ALPINE_VERSION" {}
 variable "DEBIAN_RELEASE" {}
 variable "NGINX_VERSION" {}
 variable "CLAUDE_VERSION" {}
+variable "OPENCODE_VERSION" {}
 variable "FLUTTER_VERSION" {}
 variable "BUN_VERSION" {}
 variable "PYTHON_VERSION" {}
@@ -77,7 +78,7 @@ group "ci-stage-2" {
   targets = [
     "static",
     "golang",
-    "claude",
+    "agents",
     "typescript",
     "python",
     "rover",
@@ -217,45 +218,52 @@ target "nginx-alpine" {
 }
 
 # ==============================================================================
-# CLAUDE
+# AGENTS
 # ==============================================================================
+#
+# Bundles multiple coding-agent CLIs (Claude Code + opencode). Because it ships
+# more than one tool, version tags are namespaced per tool — claude-<version> and
+# opencode-<version> — mirroring the all-in-one per-tool tag convention.
 
-group "claude" {
+group "agents" {
   targets = [
-    "claude-alpine",
-    "claude-debian",
+    "agents-alpine",
+    "agents-debian",
   ]
 }
 
-target "claude-alpine" {
+target "agents-alpine" {
   inherits = ["_common"]
-  context = "./docker/claude"
+  context = "./docker/agents"
   dockerfile = "Dockerfile.alpine"
   contexts = {
     "alpine" = "target:slim-alpine"
   }
   tags = concat(
-    ["${REGISTRY}/claude:latest", "${REGISTRY}/claude:alpine"],
-    vtags(REGISTRY, "claude", CLAUDE_VERSION, "", ""),
-    vtags(REGISTRY, "claude", CLAUDE_VERSION, "", "-alpine"),
+    ["${REGISTRY}/agents:latest", "${REGISTRY}/agents:alpine"],
+    vtags(REGISTRY, "agents", CLAUDE_VERSION,   "claude-",   ""),
+    vtags(REGISTRY, "agents", CLAUDE_VERSION,   "claude-",   "-alpine"),
+    vtags(REGISTRY, "agents", OPENCODE_VERSION, "opencode-", ""),
+    vtags(REGISTRY, "agents", OPENCODE_VERSION, "opencode-", "-alpine"),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:claude-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:claude-alpine,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agents-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agents-alpine,mode=max"]
 }
 
-target "claude-debian" {
+target "agents-debian" {
   inherits = ["_common"]
-  context = "./docker/claude"
+  context = "./docker/agents"
   dockerfile = "Dockerfile.debian"
   contexts = {
     "debian" = "target:slim-debian"
   }
   tags = concat(
-    ["${REGISTRY}/claude:debian"],
-    vtags(REGISTRY, "claude", CLAUDE_VERSION, "", "-debian"),
+    ["${REGISTRY}/agents:debian"],
+    vtags(REGISTRY, "agents", CLAUDE_VERSION,   "claude-",   "-debian"),
+    vtags(REGISTRY, "agents", OPENCODE_VERSION, "opencode-", "-debian"),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:claude-debian"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:claude-debian,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agents-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agents-debian,mode=max"]
 }
 
 # ==============================================================================
@@ -418,7 +426,7 @@ target "all-in-one-alpine" {
   contexts = {
     "golang-alpine" = "target:golang-alpine"
     "typescript"    = "target:typescript-alpine"
-    "claude"        = "target:claude-alpine"
+    "claude"        = "target:agents-alpine"
   }
   tags = concat(
     [
@@ -439,7 +447,7 @@ target "all-in-one-debian" {
   contexts = {
     "golang-debian" = "target:golang-debian"
     "typescript"    = "target:typescript-debian"
-    "claude"        = "target:claude-debian"
+    "claude"        = "target:agents-debian"
     "rover"         = "target:rover-debian"
   }
   tags = concat(

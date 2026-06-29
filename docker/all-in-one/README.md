@@ -2,7 +2,7 @@
 
 Image bundling the complete toolset into a single image. Available in Alpine and Debian flavours. Useful for CI jobs or dev containers that need everything without pulling and layering multiple images at runtime.
 
-Prefer the individual images (`golang`, `typescript`, `rover`, `claude`, etc.) when only a subset of tools is needed — they are smaller and have cleaner dependency boundaries. Use this image when the overhead of that separation outweighs its benefits.
+Prefer the individual images (`golang`, `typescript`, `rover`, `agents`, etc.) when only a subset of tools is needed — they are smaller and have cleaner dependency boundaries. Use this image when the overhead of that separation outweighs its benefits.
 
 ## Based on
 
@@ -45,7 +45,7 @@ Everything from the respective [golang image](../golang/README.md), plus:
 |------|--------|--------|--------|--------|
 | [Bun](https://bun.sh) | `bun` | musl | glibc | Binary copied from the `typescript` image, `BUN_VERSION` in `buildargs.conf` |
 | [Rover](https://www.apollographql.com/docs/rover/) | `rover` | — | glibc | Binary copied from the `rover` image, `ROVER_VERSION` in `buildargs.conf` |
-| [Claude Code](https://claude.ai/code) | `claude` | musl + shim | glibc | Binary copied from the `claude` image, `CLAUDE_VERSION` in `buildargs.conf` |
+| [Claude Code](https://claude.ai/code) | `claude` | musl + shim | glibc | Binary copied from the `agents` image, `CLAUDE_VERSION` in `buildargs.conf` |
 
 Rover is not included in the Alpine variant — it only ships glibc binaries, which are incompatible with Alpine's musl libc.
 
@@ -65,7 +65,7 @@ Runs as `root` (UID 0). `WORKDIR` is `/app`.
 
 ## Notes
 
-- **Claude on Alpine**: Uses the musl build with a `posix_getdents` shim (`LD_PRELOAD=/usr/local/lib/claude_fix.so`). This is the same approach as the `claude` image.
+- **Claude on Alpine**: Uses the musl build with a `posix_getdents` shim (`LD_PRELOAD=/usr/local/lib/claude_fix.so`). This is the same approach as the `agents` image.
 - **Claude on Debian**: Uses the native glibc build — no `LD_PRELOAD` shim needed.
 
 ## Build

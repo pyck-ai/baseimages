@@ -5,10 +5,11 @@ FROM alpine
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG CLAUDE_VERSION
+ARG OPENCODE_VERSION
 
 USER 0
 
-# The official binaries are not compatible with alpine due to a missing symbol,
+# The official Claude binaries are not compatible with alpine due to a missing symbol,
 # so we provide a shim for it.
 COPY <<EOF /tmp/claude_fix.c
 #define _GNU_SOURCE
@@ -37,6 +38,22 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --checksum-jq '.platforms["linux-{arch}-musl"] | (.checksum + " " + .binary)'\
     --install-to "/usr/local/bin/"\
     --verify 'claude --version | grep -qF "{version}"'
+
+# opencode ships a native musl build, so it needs no compatibility shim. Checksums
+# come from the GitHub releases-by-tag API: each asset carries a `digest`
+# ("sha256:...") field, which --checksum-jq rewrites into a "<sha256>  <name>"
+# line so the standard verification path is unchanged.
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${OPENCODE_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/anomalyco/opencode/releases/download/v{version}/opencode-linux-{arch}-musl.tar.gz"\
+    --checksum-url "https://api.github.com/repos/anomalyco/opencode/releases/tags/v{version}"\
+    --checksum-jq '.assets[] | select(.name == "opencode-linux-{arch}-musl.tar.gz") | (.digest | sub("sha256:"; "")) + "  " + .name'\
+    --install-paths "opencode"\
+    --install-to "/usr/local/bin/"\
+    --verify 'opencode --version | grep -qF "{version}"'
 
 USER nonroot
 WORKDIR /app
