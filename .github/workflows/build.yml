@@ -7,8 +7,8 @@ on:
     - cron: '0 9 * * 1-5'
   workflow_dispatch:
   # Validate every PR before merge so Renovate (and humans) always have a status check
-  # to gate automerge on. PR runs build but do not push and do not export build cache
-  # (see push:/cache-to below).
+  # to gate automerge on. PR runs push by digest only and do not export build cache
+  # (see the discover step and push:/cache-to handling below).
   pull_request:
 
 # Cancel any in-progress build for the same ref when a newer one is triggered.
@@ -41,12 +41,16 @@ jobs:
         id: targets
         run: |
           set -a && source buildargs.conf && set +a
-          bake_targets() {
-            REGISTRY=${{ env.REGISTRY }} docker buildx bake --print "$1" | jq -c '[.target | keys[]]'
+          bake_print() {
+            REGISTRY=${{ env.REGISTRY }} docker buildx bake --print "$1"
           }
-          stage1=$(bake_targets ci-stage-1)
-          stage2_all=$(bake_targets ci-stage-2)
-          stage3_all=$(bake_targets ci-stage-3)
+          print1=$(bake_print ci-stage-1)
+          print2=$(bake_print ci-stage-2)
+          print3=$(bake_print ci-stage-3)
+          keys() { jq -c '[.target | keys[]]' <<<"$1"; }
+          stage1=$(keys "$print1")
+          stage2_all=$(keys "$print2")
+          stage3_all=$(keys "$print3")
           stage2=$(jq -cn --argjson a "$stage2_all" --argjson prev "$stage1" \
             '[$a[] | select(. as $t | $prev | index($t) | not)]')
           stage3=$(jq -cn --argjson a "$stage3_all" --argjson prev "$stage2_all" \
@@ -57,9 +61,23 @@ jobs:
             echo "stage-3-targets=$stage3"
             echo 'bakeargs-set<<EOF'
             grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
-            # On PRs, disable cache export so an unmerged (possibly broken) bump can't
-            # poison the shared registry build cache that scheduled builds rely on.
-            if [ "${{ github.event_name }}" = "pull_request" ]; then echo '*.cache-to='; fi
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              # On PRs, disable cache export so an unmerged (possibly broken) bump can't
+              # poison the shared registry build cache that scheduled builds rely on.
+              echo '*.cache-to='
+              # Push PR builds by digest only: clear every target's floating/version tags
+              # and push with push-by-digest, so the image is uploaded for inspection
+              # (reference it as <repo>@sha256:...) without writing or moving any tag such
+              # as golang:alpine-3.24 that scheduled and manual builds own. The repo to
+              # push to is derived from each target's first tag (e.g. .../golang:latest).
+              jq -rn --argjson p1 "$print1" --argjson p2 "$print2" --argjson p3 "$print3" '
+                ($p1.target + $p2.target + $p3.target)
+                | to_entries[]
+                | .key as $k
+                | (.value.tags[0] | sub(":[^/]+$"; "")) as $repo
+                | ($k + ".tags="),
+                  ($k + ".output=type=image,name=" + $repo + ",push-by-digest=true,name-canonical=true,push=true")'
+            fi
             echo 'EOF'
           } >> $GITHUB_OUTPUT
 
@@ -104,7 +122,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          # Build only on PRs; publish to the registry on schedule/manual runs.
+          # On schedule/manual runs, push the full floating/version tag set. On PRs the
+          # action does not push; instead `set` (from discover) clears tags and pushes
+          # by digest only, so PR builds upload for inspection without moving shared tags.
           push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
@@ -152,7 +172,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          # Build only on PRs; publish to the registry on schedule/manual runs.
+          # On schedule/manual runs, push the full floating/version tag set. On PRs the
+          # action does not push; instead `set` (from discover) clears tags and pushes
+          # by digest only, so PR builds upload for inspection without moving shared tags.
           push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
@@ -199,7 +221,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
           pull: true
-          # Build only on PRs; publish to the registry on schedule/manual runs.
+          # On schedule/manual runs, push the full floating/version tag set. On PRs the
+          # action does not push; instead `set` (from discover) clears tags and pushes
+          # by digest only, so PR builds upload for inspection without moving shared tags.
           push: ${{ github.event_name != 'pull_request' }}
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
