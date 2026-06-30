@@ -4,23 +4,18 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 
 ## Images
 
-| Image | Description | Docs |
-|-------|-------------|------|
-| `slim:alpine` | Hardened Alpine slim with common tooling | [docker/slim](docker/slim/README.md) |
-| `slim:debian` | Hardened Debian slim with common tooling | [docker/slim](docker/slim/README.md) |
-| `static` | Minimal scratch image for static binaries | [docker/static](docker/static/README.md) |
-| `golang:latest` | Go toolchain + CI tools (Alpine variant) | [docker/golang](docker/golang/README.md) |
-| `golang:debian` | Go toolchain + CI tools (Debian variant) | [docker/golang](docker/golang/README.md) |
-| `nginx` | Unprivileged nginx for SPAs with OTel support | [docker/nginx](docker/nginx/README.md) |
-| `agents:latest` | Claude Code + opencode CLIs for agent pipelines (Alpine) | [docker/agents](docker/agents/README.md) |
-| `agents:debian` | Claude Code + opencode CLIs for agent pipelines (Debian) | [docker/agents](docker/agents/README.md) |
-| `flutter` | Flutter + Dart runtime with RFW validator | [docker/flutter](docker/flutter/README.md) |
-| `typescript:latest` | TypeScript/JS runtime powered by Bun (Alpine) | [docker/typescript](docker/typescript/README.md) |
-| `typescript:debian` | TypeScript/JS runtime powered by Bun (Debian) | [docker/typescript](docker/typescript/README.md) |
-| `rover` | Apollo Rover CLI for schema registry and supergraph operations | [docker/rover](docker/rover/README.md) |
-| `python` | Python runtime with uv + Ruff (Debian only) | [docker/python](docker/python/README.md) |
-| `all-in-one:alpine` | Full toolset in a single Alpine image | [docker/all-in-one](docker/all-in-one/README.md) |
-| `all-in-one:debian` | Full toolset in a single Debian image | [docker/all-in-one](docker/all-in-one/README.md) |
+| Image | Description |
+|-------|-------------|
+| [`agents`](docker/agents/README.md) | Claude Code + opencode CLIs for agent pipelines |
+| [`all-in-one`](docker/all-in-one/README.md) | Full toolset in a single image |
+| [`flutter`](docker/flutter/README.md) | Flutter + Dart runtime with RFW validator |
+| [`golang`](docker/golang/README.md) | Go toolchain + CI tools |
+| [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
+| [`python`](docker/python/README.md) | Python runtime with uv + Ruff |
+| [`rover`](docker/rover/README.md) | Apollo Rover CLI for schema registry and supergraph operations |
+| [`slim`](docker/slim/README.md) | Hardened slim base with common tooling |
+| [`static`](docker/static/README.md) | Minimal scratch image for static binaries |
+| [`typescript`](docker/typescript/README.md) | TypeScript/JS runtime powered by Bun |
 
 
 ## Versioning
