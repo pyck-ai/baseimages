@@ -88,10 +88,11 @@
 			"groupName": "nginx"
 		},
 		{
-			// golang base image updates (GO_VERSION + ALPINE_VERSION) are grouped together
-			// because they are typically bumped in lockstep when a new Go release ships.
-			"description": "Keep golang versions separate",
-			"matchPackageNames": ["golang"],
+			// golang and delve are grouped together and kept separate from the general
+			// batch. Delve embeds the Go version it was built against and must match the
+			// toolchain, so the two are always bumped in lockstep when a new Go release ships.
+			"description": "Keep golang and delve together, separate from the general batch",
+			"matchPackageNames": ["golang", "go-delve/delve"],
 			"matchManagers": ["custom.regex"],
 			"groupName": "golang base images"
 		},
