@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  REGISTRY: '{{.REGISTRY | default "localhost:5000/pyck-ai/baseimages"}}'
+  REGISTRY: '{{.REGISTRY | default "ghcr.io/pyck-ai/baseimages"}}'
   CI: '{{.CI | default ""}}'
 
   _BAKE_BUILDARGS:
@@ -16,21 +16,14 @@ dotenv:
   - buildargs.conf
 
 tasks:
-  #######################################################################
-  #   BUILD TASKS (Docker Bake wrappers)                                #
-  #######################################################################
-  
   setup:
-    desc: "Create the 'pyck' buildx builder (run once per machine)"
+    desc: "Create the 'pyck-baseimages' buildx builder (run once per machine)"
     cmds:
       - |
-        docker buildx inspect pyck 2>/dev/null || \
+        docker buildx inspect pyck-baseimages 2>/dev/null || \
         docker buildx create \
-          --name=pyck \
-          --driver=docker-container \
-          --driver-opt=network=host \
-          --buildkitd-flags=--allow-insecure-entitlement=network.host
-        docker buildx use pyck
+          --name=pyck-baseimages \
+          --driver=docker-container 
 
   build:
     desc: "Build base images using Docker Bake. Args: TARGET=alpine,debian ARCH=arm64"
@@ -39,18 +32,15 @@ tasks:
       - >-
         docker buildx bake
         --pull
-        --push
-        --builder pyck
+        --builder pyck-baseimages
         {{if not .CI}}--set {{ (printf "*.platform=linux/%s" (.ARCH | default ._HOST_ARCH)) | q}}{{end}}
         --set "*.args.REGISTRY"={{ .REGISTRY | q}}
+        --set "*.cache-from="
+        --set "*.cache-to="
         --var REGISTRY={{ .REGISTRY | q}}
         {{._BAKE_BUILDARGS}}
         {{if .CLI_VERBOSE}}--debug{{end}}
         {{.CLI_ARGS}}
-
-  #######################################################################
-  #   TEST TASKS                                                        #
-  #######################################################################
 
   test:flutter:generate-binary:
     desc: Generate binary test file from text example
