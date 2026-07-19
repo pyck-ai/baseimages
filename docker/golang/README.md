@@ -6,8 +6,8 @@ Go development images with the full toolchain plus a curated set of CI/dev tools
 
 | Image | Based on | Tags |
 |-------|----------|------|
-| Alpine | our [alpine base](../slim/README.md) + `golang:<GO_VERSION>-alpine<ALPINE_VERSION>` | see below |
-| Debian | our [debian base](../slim/README.md) + `golang:<GO_VERSION>-<DEBIAN_RELEASE>` | see below |
+| Alpine | our [alpine base](../base/README.md) + `golang:<GO_VERSION>-alpine<ALPINE_VERSION>` | see below |
+| Debian | our [debian base](../base/README.md) + `golang:<GO_VERSION>-<DEBIAN_RELEASE>` | see below |
 
 Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 
@@ -43,14 +43,14 @@ The Go toolchain is copied from the official `golang` image into `/usr/local/go`
 
 ### Additional tools
 
-| Tool | Binary | Purpose |
-|------|--------|---------|
-| [Delve](https://github.com/go-delve/delve) | `dlv` | Go debugger |
-| [go-arch-lint](https://github.com/fe3dback/go-arch-lint) | `go-arch-lint` | Architecture linter |
-| [golangci-lint](https://github.com/golangci/golangci-lint) | `golangci-lint` | Meta linter |
-| [gotestsum](https://github.com/gotestyourself/gotestsum) | `gotestsum` | Test runner with better output |
+| Tool | Binary | Alpine | Debian | Purpose |
+|------|--------|--------|--------|---------|
+| [Delve](https://github.com/go-delve/delve) | `dlv` | ✅ | ✅ | Go debugger |
+| [go-arch-lint](https://github.com/fe3dback/go-arch-lint) | `go-arch-lint` | ✅ | ✅ | Architecture linter |
+| [golangci-lint](https://github.com/golangci/golangci-lint) | `golangci-lint` | ✅ | ✅ | Meta linter |
+| [gotestsum](https://github.com/gotestyourself/gotestsum) | `gotestsum` | ✅ | ✅ | Test runner with better output |
 
-All tools are downloaded with checksum verification via `download.sh` and support `linux/amd64` and `linux/arm64`.
+All tools are present in both Alpine and Debian variants, downloaded with checksum verification via `download.sh`, and support `linux/amd64` and `linux/arm64`. The Go toolchain itself (`go`, `gofmt`) is likewise identical in both variants.
 
 ### Environment
 

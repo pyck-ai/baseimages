@@ -6,8 +6,8 @@ TypeScript/JavaScript runtime images powered by [Bun](https://bun.sh). Bun is us
 
 | Image | Based on | Tags |
 |-------|----------|------|
-| Alpine | our [alpine base](../slim/README.md) | see below |
-| Debian | our [debian base](../slim/README.md) | see below |
+| Alpine | our [alpine base](../base/README.md) | see below |
+| Debian | our [debian base](../base/README.md) | see below |
 
 The Alpine variant uses the musl-compatible Bun build. The Debian variant uses the standard glibc build.
 
@@ -39,9 +39,9 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 ### Bun
 
-| Binary | Path | Description |
-|--------|------|-------------|
-| `bun` | `/usr/local/bin/bun` | Runtime, package manager, bundler, and test runner |
+| Binary | Path | Alpine | Debian | Description |
+|--------|------|--------|--------|-------------|
+| `bun` | `/usr/local/bin/bun` | ✅ | ✅ | Runtime, package manager, bundler, and test runner |
 
 Bun runs TypeScript, JavaScript, JSX, and TSX files directly.
 

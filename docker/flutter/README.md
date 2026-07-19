@@ -6,8 +6,8 @@ A Flutter + Dart runtime image with a pre-installed RFW (Remote Flutter Widgets)
 
 | Image | Based on | Tags |
 |-------|----------|------|
-| Alpine | our [alpine base](../slim/README.md) | see below |
-| Debian | our [debian base](../slim/README.md) | see below |
+| Alpine | our [alpine base](../base/README.md) | see below |
+| Debian | our [debian base](../base/README.md) | see below |
 
 Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
@@ -37,11 +37,11 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 
 ### Flutter toolchain
 
-| Path | Description |
-|------|-------------|
-| `/opt/flutter` | Full Flutter SDK (including bundled Dart SDK) |
-| `/usr/local/bin/flutter` | Symlink to flutter binary |
-| `/usr/local/bin/dart` | Symlink to dart binary |
+| Path | Alpine | Debian | Description |
+|------|--------|--------|-------------|
+| `/opt/flutter` | ✅ | ✅ | Full Flutter SDK (including bundled Dart SDK) |
+| `/usr/local/bin/flutter` | ✅ | ✅ | Symlink to flutter binary |
+| `/usr/local/bin/dart` | ✅ | ✅ | Symlink to dart binary |
 
 Flutter analytics and Dart telemetry are disabled at build time.
 
@@ -67,9 +67,9 @@ Pre-installed at `/opt/rfw-validator`. Validates Remote Flutter Widgets (RFW) fi
 
 ### Additional tools
 
-| Binary | Path | Description |
-|--------|------|-------------|
-| `aws` | `/usr/bin/aws` | AWS CLI for pushing build artefacts to S3/ECR from CI |
+| Binary | Path | Alpine | Debian | Description |
+|--------|------|--------|--------|-------------|
+| `aws` | `/usr/bin/aws` | ✅ | ✅ | AWS CLI for pushing build artefacts to S3/ECR from CI |
 
 ### Additional packages installed
 

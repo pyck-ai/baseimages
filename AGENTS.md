@@ -1,5 +1,16 @@
 # Agent Instructions
 
+## Image categories
+
+Images fall into a few kinds:
+
+- **`base`** — a hardened Alpine + Debian foundation with common tooling. Other images **may** build on it, but single-purpose images are not required to; `base` is an option, not a mandatory parent.
+- **Developer tooling** — single-purpose language toolchains, package managers, and coding-agent CLIs (`golang`, `typescript`, `python`, `rover`, `agent`). These are bundled together into the [`all-in-one`](docker/all-in-one/README.md) image.
+- **`all-in-one`** — the complete developer-tooling set in one image, intended for local development, **not** for CI (size and attack surface).
+- **Runtime / deployment images** — `nginx` (web server), `flutter` (application SDK/runtime), and `static` (scratch base for static binaries). These run or serve an application rather than build one; they are consumed standalone and are **intentionally excluded from `all-in-one`**. Do not wire them into it.
+
+Whenever a developer-tooling image is added, removed, or renamed, adjust `all-in-one` to match — it must bundle every developer-tooling image, and only the runtime / deployment images above are exempt.
+
 ## README maintenance
 
 README files in this repository document what each Docker image contains. Keep them accurate and up to date.
@@ -16,9 +27,9 @@ README files in this repository document what each Docker image contains. Keep t
 - New environment variable added or an existing one changed: update the ENV table.
 - Default user or WORKDIR changed: update the "Default user" section.
 
-**When an image is added**, create a README in the new image's directory following the style of the existing ones, then add a row to the table and the dependency graph in the root [`README.md`](README.md).
+**When an image is added**, create a README in the new image's directory following the style of the existing ones, then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
-**When an image is removed**, delete its README and remove its row from the root [`README.md`](README.md) table and dependency graph.
+**When an image is removed**, delete its README and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
 **When an image is renamed** (tag or directory), update all references in the root [`README.md`](README.md) and any cross-links between image READMEs.
 

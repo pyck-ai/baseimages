@@ -13,9 +13,10 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 | Tag | Description |
 |-----|-------------|
 | `nginx:latest` | Most recent build |
+| `nginx:<major.minor>` | Minor-version alias, e.g. `nginx:1.29` |
 | `nginx:<major>` | Major-version alias, e.g. `nginx:1` |
-| `nginx:<major.minor>` | Minor-version alias, e.g. `nginx:1.27` |
-| `nginx:<version>` | Exact pinned version, e.g. `nginx:1.27.3` |
+
+`NGINX_VERSION` tracks the upstream `nginxinc/nginx-unprivileged` image at `<major.minor>` granularity, so there is no three-part `nginx:<major.minor.patch>` tag.
 
 ## What is included
 

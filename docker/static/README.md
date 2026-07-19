@@ -4,7 +4,7 @@ A minimal `scratch`-based image for running statically-compiled binaries in prod
 
 ## Based on
 
-`scratch` (empty base), populated with selected files from our [alpine base image](../slim/README.md).
+`scratch` (empty base), populated with selected files from our [alpine base image](../base/README.md).
 
 ## Tags
 
@@ -13,6 +13,8 @@ A minimal `scratch`-based image for running statically-compiled binaries in prod
 | `static:latest` | Multi-arch (amd64 + arm64) |
 
 ## What is included
+
+`static` ships **no installed tools** — it is a bare `scratch` image with no shell or package manager. It is published as a single multi-arch image (`static:latest`, amd64 + arm64), not as separate Alpine/Debian variants, so there is no per-variant tool coverage to list. The table below is the set of files provisioned into the image (sourced from the Alpine base):
 
 | Path | Source | Purpose |
 |------|--------|---------|
