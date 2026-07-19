@@ -1,18 +1,88 @@
 # syntax=docker/dockerfile:1
 
-FROM golang-alpine
+FROM alpine
 
 ARG TARGETPLATFORM TARGETARCH
+ARG PYTHON_VERSION
 USER 0
+
+#===============================================================================
+# GOLANG
+#===============================================================================
+
+ENV GOPATH=/go
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
+ENV GOCACHE=/var/cache/go/
+ENV GOMODCACHE=/go/pkg/mod/
+# Internal Go module proxy with fallback to direct. Mount GOCACHE and GOMODCACHE
+# as volumes in CI to persist across builds.
+ENV GOPROXY=https://go.pyck.cloud,direct
+# All builds are statically linked by default; set CGO_ENABLED=1 explicitly if
+# you need cgo.
+ENV CGO_ENABLED=0
+
+RUN mkdir -p /go/bin
+COPY --from=golang /usr/local/go /usr/local/go
+COPY --from=golang\
+     /usr/local/bin/dlv\
+     /usr/local/bin/go-arch-lint\
+     /usr/local/bin/golangci-lint\
+     /usr/local/bin/gotestsum\
+     /usr/local/bin/
+
+#===============================================================================
+# TYPESCRIPT (Bun)
+#===============================================================================
 
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
 
 RUN mkdir -p /bun/bin
 COPY --from=typescript /usr/local/bin/bun /usr/local/bin/
-COPY --from=claude /usr/local/bin/claude /usr/local/bin/
-COPY --from=claude /usr/local/bin/opencode /usr/local/bin/
-COPY --from=claude /usr/local/lib/claude_fix.so /usr/local/lib/
+
+#===============================================================================
+# AGENT (Claude Code, opencode, pi)
+#===============================================================================
+
+COPY --from=agent /usr/local/bin/claude /usr/local/bin/
+COPY --from=agent /usr/local/bin/opencode /usr/local/bin/
+
+# Alpine only: Claude's musl `posix_getdents` shim, loaded via LD_PRELOAD.
+COPY --from=agent /usr/local/lib/claude_fix.so /usr/local/lib/
 ENV LD_PRELOAD=/usr/local/lib/claude_fix.so
+
+# pi is a Bun global install; copy it and add the node->bun symlink it needs
+# (pi's binary is a `#!/usr/bin/env node` script).
+COPY --from=agent /bun/bin /bun/bin
+COPY --from=agent /bun/install/global /bun/install/global
+RUN ln -s /usr/local/bin/bun /usr/local/bin/node
+
+#===============================================================================
+# PYTHON (uv + Ruff)
+#===============================================================================
+
+# uv installs a musl python-build-standalone CPython, so this works on Alpine.
+# uv/uvx/ruff are copied as binaries; the python/pip/pydoc entries are RECREATED
+# as symlinks into the managed install rather than COPY'd, because `COPY --from`
+# dereferences the source symlinks into standalone binaries at /usr/local/bin,
+# which breaks python-build-standalone's stdlib (sys.prefix) resolution.
+ENV UV_PYTHON_INSTALL_DIR=/usr/local/python
+ENV UV_PYTHON_PREFERENCE=only-managed
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+COPY --from=python /usr/local/python /usr/local/python
+COPY --from=python /usr/local/bin/uv /usr/local/bin/ruff /usr/local/bin/
+RUN ln -sf uv /usr/local/bin/uvx &&\
+    python_bin="$(uv python find ${PYTHON_VERSION})" &&\
+    python_dir="${python_bin%/*}" &&\
+    ln -sf "${python_dir}/python${PYTHON_VERSION}" /usr/local/bin/python${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/python${PYTHON_VERSION} /usr/local/bin/python3 &&\
+    ln -sf /usr/local/bin/python3 /usr/local/bin/python &&\
+    ln -sf "${python_dir}/pip${PYTHON_VERSION}" /usr/local/bin/pip${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/pip${PYTHON_VERSION} /usr/local/bin/pip3 &&\
+    ln -sf /usr/local/bin/pip3 /usr/local/bin/pip &&\
+    ln -sf "${python_dir}/pydoc${PYTHON_VERSION}" /usr/local/bin/pydoc${PYTHON_VERSION} &&\
+    ln -sf /usr/local/bin/pydoc${PYTHON_VERSION} /usr/local/bin/pydoc3 &&\
+    ln -sf /usr/local/bin/pydoc3 /usr/local/bin/pydoc
 
 WORKDIR /app
