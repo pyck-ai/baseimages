@@ -50,7 +50,7 @@ The Go toolchain is copied from the official `golang` image into `/usr/local/go`
 | [golangci-lint](https://github.com/golangci/golangci-lint) | `golangci-lint` | ✅ | ✅ | Meta linter |
 | [gotestsum](https://github.com/gotestyourself/gotestsum) | `gotestsum` | ✅ | ✅ | Test runner with better output |
 
-All tools are present in both Alpine and Debian variants, downloaded with checksum verification via `download.sh`, and support `linux/amd64` and `linux/arm64`. The Go toolchain itself (`go`, `gofmt`) is likewise identical in both variants.
+All tools are present in both Alpine and Debian variants and support `linux/amd64` and `linux/arm64`. The Go toolchain itself (`go`, `gofmt`) is likewise identical in both variants.
 
 ### Environment
 

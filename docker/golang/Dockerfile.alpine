@@ -13,19 +13,17 @@ FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION} AS golang
 # DOWNLOADS
 #===============================================================================
 
-FROM alpine AS delve
-ARG TARGETPLATFORM TARGETARCH DELVE_VERSION
+FROM golang AS delve
+ARG DELVE_VERSION
 USER 0
-RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
-    download.sh\
-    --var "version=${DELVE_VERSION}"\
-    --platform-arch "linux/amd64=amd64"\
-    --platform-arch "linux/arm64=arm64"\
-    --url "https://github.com/go-delve/delve/releases/download/v{version}/dlv_{version}_linux_{arch}.tar.gz"\
-    --checksum-url "https://github.com/go-delve/delve/releases/download/v{version}/checksums.txt"\
-    --install-paths "dlv"\
-    --install-to "/usr/local/bin/"\
-    --verify "dlv version | grep -qF 'Version: {version}'"
+# Temporary workaround: install dlv via `go install` instead of downloading the
+# GitHub release artifact, because upstream's release CI is currently not
+# attaching prebuilt binaries/checksums to the release (breaking download.sh).
+# Revert to the release-artifact download once upstream restores release assets.
+RUN --mount=type=cache,id=go-build,target=/root/.cache/go-build,sharing=shared\
+    --mount=type=cache,id=go-mod,target=/go/pkg/mod,sharing=shared\
+    CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}\
+    && dlv version | grep -qF "Version: ${DELVE_VERSION}"
 
 FROM alpine AS goarchlint
 ARG TARGETPLATFORM TARGETARCH GOARCHLINT_VERSION
