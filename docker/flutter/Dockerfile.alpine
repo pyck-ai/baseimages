@@ -4,7 +4,7 @@
 # FLUTTER SDK
 #===============================================================================
 
-# Uses slim (alpine context) as base so that changes to the slim base
+# Uses the base image (alpine context) for this stage so that base changes
 # only invalidate the thin RESULT stage, not the expensive SDK download.
 FROM alpine AS flutter-sdk
 

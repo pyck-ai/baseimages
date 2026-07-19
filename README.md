@@ -4,18 +4,46 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 
 ## Images
 
+The images fall into a few kinds:
+
+- **Base** — a hardened Alpine + Debian foundation with common tooling. Other images may build on it, but single-purpose images are not required to.
+- **Developer tooling** — single-purpose language toolchains, package managers, and coding-agent CLIs. Each targets one kind of project, and all are bundled into `all-in-one`.
+- **All-in-one** — the full developer-tooling set in one image, for local development where juggling many images isn't worth it. Not intended for CI (size and attack surface).
+- **Runtime & deployment** — single-purpose images that run or serve an application rather than build one. Consumed standalone and intentionally excluded from `all-in-one`.
+
+### Base
+
 | Image | Description |
 |-------|-------------|
-| [`agents`](docker/agents/README.md) | Claude Code + opencode CLIs for agent pipelines |
-| [`all-in-one`](docker/all-in-one/README.md) | Full toolset in a single image |
-| [`flutter`](docker/flutter/README.md) | Flutter + Dart runtime with RFW validator |
-| [`golang`](docker/golang/README.md) | Go toolchain + CI tools |
-| [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
+| [`base`](docker/base/README.md) | Hardened Alpine + Debian foundation with common tooling; an optional base for the other images |
+
+### Developer tooling
+
+Single-purpose tooling images, all bundled into `all-in-one`.
+
+| Image | Description |
+|-------|-------------|
+| [`agent`](docker/agent/README.md) | Claude Code + opencode + pi coding-agent CLIs |
+| [`golang`](docker/golang/README.md) | Go toolchain + CI tools (delve, golangci-lint, gotestsum, go-arch-lint) |
 | [`python`](docker/python/README.md) | Python runtime with uv + Ruff |
-| [`rover`](docker/rover/README.md) | Apollo Rover CLI for schema registry and supergraph operations |
-| [`slim`](docker/slim/README.md) | Hardened slim base with common tooling |
-| [`static`](docker/static/README.md) | Minimal scratch image for static binaries |
+| [`rover`](docker/rover/README.md) | Apollo Rover CLI for schema registry and supergraph operations (Debian only) |
 | [`typescript`](docker/typescript/README.md) | TypeScript/JS runtime powered by Bun |
+
+### All-in-one
+
+| Image | Description |
+|-------|-------------|
+| [`all-in-one`](docker/all-in-one/README.md) | Every developer-tooling image combined for local development; excludes the runtime & deployment images (nginx, flutter, static) |
+
+### Runtime & deployment
+
+Single-purpose, consumed standalone, and intentionally excluded from `all-in-one`.
+
+| Image | Description |
+|-------|-------------|
+| [`flutter`](docker/flutter/README.md) | Flutter + Dart SDK/runtime with RFW validator |
+| [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
+| [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
 
 
 ## Versioning
@@ -40,8 +68,8 @@ task build
 
 ```sh
 task build -- static            # scratch/static image
-task build -- slim              # alpine + debian slim images
-task build -- slim-alpine       # alpine slim only
+task build -- base              # alpine + debian base images
+task build -- base-alpine       # alpine base only
 task build -- golang            # both golang variants
 task build -- golang-debian     # Go debian only
 task build -- all-in-one        # all-in-one image (both variants)
@@ -50,36 +78,40 @@ task build -- all-in-one        # all-in-one image (both variants)
 ### Build a specific arch only
 
 ```sh
-task build ARCH=amd64 -- slim-alpine
+task build ARCH=amd64 -- base-alpine
 ```
 
 ## Dependency graph
 
+The arrows show current build dependencies. Building on `base` is optional by design — a single-purpose image may start from any suitable upstream instead (e.g. `golang` also pulls the official `golang` toolchain image, `nginx` builds on `nginxinc/nginx-unprivileged`).
+
 ```mermaid
 graph LR
-  slim-alpine["slim:alpine"]
-  slim-debian["slim:debian"]
+  base-alpine["base:alpine"]
+  base-debian["base:debian"]
   nginx-base["nginxinc/nginx-unprivileged"]
 
-  slim-alpine --> static
-  slim-alpine --> golang-alpine["golang:alpine"]
-  slim-alpine --> agents-alpine["agents:alpine"]
-  slim-alpine --> typescript-alpine["typescript:alpine"]
-  slim-alpine --> flutter-alpine["flutter:alpine"]
+  base-alpine --> static
+  base-alpine --> golang-alpine["golang:alpine"]
+  base-alpine --> agent-alpine["agent:alpine"]
+  base-alpine --> typescript-alpine["typescript:alpine"]
+  base-alpine --> flutter-alpine["flutter:alpine"]
+  base-alpine --> python-alpine["python:alpine"]
 
-  slim-debian --> golang-debian["golang:debian"]
-  slim-debian --> agents-debian["agents:debian"]
-  slim-debian --> typescript-debian["typescript:debian"]
-  slim-debian --> flutter-debian["flutter:debian"]
-  slim-debian --> python-debian["python:debian"]
-  slim-debian --> rover
+  base-debian --> golang-debian["golang:debian"]
+  base-debian --> agent-debian["agent:debian"]
+  base-debian --> typescript-debian["typescript:debian"]
+  base-debian --> flutter-debian["flutter:debian"]
+  base-debian --> python-debian["python:debian"]
+  base-debian --> rover
 
   golang-alpine --> aio-alpine["all-in-one:alpine"]
-  agents-alpine --> aio-alpine
+  agent-alpine --> aio-alpine
   typescript-alpine --> aio-alpine
+  python-alpine --> aio-alpine
 
   golang-debian --> aio-debian["all-in-one:debian"]
-  agents-debian --> aio-debian
+  agent-debian --> aio-debian
   typescript-debian --> aio-debian
   rover --> aio-debian
   python-debian --> aio-debian

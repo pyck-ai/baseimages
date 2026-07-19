@@ -17,17 +17,17 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 
 | Tag | Description |
 |-----|-------------|
-| `slim:latest` | Most recent Alpine build |
-| `slim:alpine` | Most recent Alpine build |
-| `slim:alpine-<major>` | Major Alpine version, e.g. `slim:alpine-3` |
-| `slim:alpine-<version>` | Exact Alpine version, e.g. `slim:alpine-3.22` |
+| `base:latest` | Most recent Alpine build |
+| `base:alpine` | Most recent Alpine build |
+| `base:alpine-<major>` | Major Alpine version, e.g. `base:alpine-3` |
+| `base:alpine-<version>` | Exact Alpine version, e.g. `base:alpine-3.22` |
 
 ### Debian
 
 | Tag | Description |
 |-----|-------------|
-| `slim:debian` | Most recent Debian build |
-| `slim:debian-<release>` | Debian release name, e.g. `slim:debian-bookworm` |
+| `base:debian` | Most recent Debian build |
+| `base:debian-<release>` | Debian release name, e.g. `base:debian-bookworm` |
 
 ## What is included
 
@@ -66,15 +66,17 @@ Both variants provide the same set of tools and conventions so downstream images
 
 ### Third-party tools
 
-| Tool | Binary | Version source |
-|------|--------|----------------|
-| [Task](https://taskfile.dev) | `task` | `TASKFILE_VERSION` in `buildargs.conf` |
-| [flyctl](https://fly.io/docs/flyctl/) | `flyctl` | `FLYCTL_VERSION` in `buildargs.conf` |
-| [GitHub CLI](https://cli.github.com) | `gh` | `GHCLI_VERSION` in `buildargs.conf` |
-| [Helm](https://helm.sh) | `helm` | `HELM_VERSION` in `buildargs.conf` |
-| [kubectl](https://kubernetes.io/docs/reference/kubectl/) | `kubectl` | `KUBECTL_VERSION` in `buildargs.conf` |
-| [kustomize](https://kustomize.io) | `kustomize` | `KUSTOMIZE_VERSION` in `buildargs.conf` |
-| [watchexec](https://github.com/watchexec/watchexec) | `watchexec` | `WATCHEXEC_VERSION` in `buildargs.conf` |
+| Tool | Binary | Alpine | Debian | Version source |
+|------|--------|--------|--------|----------------|
+| [Task](https://taskfile.dev) | `task` | ✅ | ✅ | `TASKFILE_VERSION` in `buildargs.conf` |
+| [flyctl](https://fly.io/docs/flyctl/) | `flyctl` | ✅ | ✅ | `FLYCTL_VERSION` in `buildargs.conf` |
+| [GitHub CLI](https://cli.github.com) | `gh` | ✅ | ✅ | `GHCLI_VERSION` in `buildargs.conf` |
+| [Helm](https://helm.sh) | `helm` | ✅ | ✅ | `HELM_VERSION` in `buildargs.conf` |
+| [kubectl](https://kubernetes.io/docs/reference/kubectl/) | `kubectl` | ✅ | ✅ | `KUBECTL_VERSION` in `buildargs.conf` |
+| [kustomize](https://kustomize.io) | `kustomize` | ✅ | ✅ | `KUSTOMIZE_VERSION` in `buildargs.conf` |
+| [watchexec](https://github.com/watchexec/watchexec) | `watchexec` | ✅ | ✅ | `WATCHEXEC_VERSION` in `buildargs.conf` |
+
+All third-party tools are present in both variants. System packages are listed per-distro by name above; a name in the Alpine or Debian column means the package is present in that variant.
 
 ### Conventions applied
 
@@ -89,17 +91,17 @@ Both variants provide the same set of tools and conventions so downstream images
 These images are not meant to be used directly in production. They serve as the base for downstream images in this repo (`static`, `golang`, etc.) and can be used as build stages in application Dockerfiles:
 
 ```dockerfile
-FROM ghcr.io/pyck-ai/baseimages/slim:alpine AS build
+FROM ghcr.io/pyck-ai/baseimages/base:alpine AS build
 RUN ...
 
-FROM ghcr.io/pyck-ai/baseimages/slim:debian AS build
+FROM ghcr.io/pyck-ai/baseimages/base:debian AS build
 RUN ...
 ```
 
 ## Build
 
 ```sh
-task build -- slim          # build both alpine and debian
-task build -- slim-alpine   # alpine only
-task build -- slim-debian   # debian only
+task build -- base          # build both alpine and debian
+task build -- base-alpine   # alpine only
+task build -- base-debian   # debian only
 ```

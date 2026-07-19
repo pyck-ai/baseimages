@@ -4,7 +4,7 @@
 # FLUTTER SDK
 #===============================================================================
 
-# Uses slim (debian context) as base so that changes to the slim base
+# Uses the base image (debian context) for this stage so that base changes
 # only invalidate the thin RESULT stage, not the expensive SDK download.
 FROM debian AS flutter-sdk
 
