@@ -6,6 +6,8 @@ ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG CLAUDE_VERSION
 ARG OPENCODE_VERSION
+ARG BUN_VERSION
+ARG PI_VERSION
 
 USER 0
 
@@ -54,6 +56,30 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --install-paths "opencode"\
     --install-to "/usr/local/bin/"\
     --verify 'opencode --version | grep -qF "{version}"'
+
+# Bun runtime, required by the pi coding agent installed below. Uses the musl
+# build, mirroring the typescript image. `bun add -g` links pi's binary into
+# /bun/bin, which is placed on PATH.
+ENV BUN_INSTALL=/bun
+ENV PATH="/bun/bin:${PATH}"
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}-musl.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}-musl/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'"
+
+# pi's binary is a `#!/usr/bin/env node` script. Bun runs in Node-compatibility
+# mode when invoked as `node`, so a node->bun symlink lets pi run without a
+# separate Node.js runtime. --ignore-scripts is safe: pi has no postinstall.
+RUN ln -s /usr/local/bin/bun /usr/local/bin/node
+RUN mkdir -p /bun/bin &&\
+    bun add -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" &&\
+    pi --version | grep -qF "${PI_VERSION}"
 
 USER nonroot
 WORKDIR /app
