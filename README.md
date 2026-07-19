@@ -46,6 +46,23 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 | [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
 
 
+## Deprecated tags
+
+> [!WARNING]
+> The images and tags below are **no longer built** and are **scheduled for
+> removal without further announcement**. Migrate to the replacement — for the
+> renamed repositories keep the tag and only change the name (e.g.
+> `slim:alpine` → `base:alpine`).
+
+| Deprecated | Replacement |
+|------------|-------------|
+| `slim` | `base` |
+| `agents` | `agent` |
+| `alpine:latest` | `all-in-one:alpine` |
+| `debian:latest` | `all-in-one:debian` |
+| `rover:debian` | `rover:latest` |
+| `rover:<version>-debian` | `rover:<version>` |
+
 ## Versioning
 
 All tool and base image versions are pinned in [`buildargs.conf`](buildargs.conf) and kept up to date by [Renovate](https://docs.renovatebot.com/).

@@ -451,7 +451,6 @@ target "all-in-one-alpine" {
   }
   tags = concat(
     [
-      "${REGISTRY}/alpine:latest",
       "${REGISTRY}/all-in-one:latest",
       "${REGISTRY}/all-in-one:alpine",
     ],
@@ -475,7 +474,6 @@ target "all-in-one-debian" {
   }
   tags = concat(
     [
-      "${REGISTRY}/debian:latest",
       "${REGISTRY}/all-in-one:debian",
     ],
     all_in_one_tags(REGISTRY, "debian-${DEBIAN_RELEASE}"),
