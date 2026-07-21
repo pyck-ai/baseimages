@@ -1,15 +1,31 @@
 # syntax=docker/dockerfile:1
 
-FROM alpine
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
 
-ARG TARGETPLATFORM
-ARG TARGETARCH
-ARG CLAUDE_VERSION
-ARG OPENCODE_VERSION
-ARG BUN_VERSION
-ARG PI_VERSION
+FROM base AS bun
+ARG TARGETPLATFORM TARGETARCH BUN_VERSION PI_VERSION
 
-USER 0
+ENV BUN_INSTALL=/bun
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}-musl.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}-musl/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'" &&\
+    ln -s /usr/local/bin/bun /usr/local/bin/node
+
+RUN bun add -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" &&\
+    ln -s /bun/bin/pi /usr/local/bin/ &&\
+    pi --version | grep -qF "${PI_VERSION}"
+
+FROM base AS claude
+ARG TARGETPLATFORM TARGETARCH CLAUDE_VERSION
 
 # The official Claude binaries are not compatible with alpine due to a missing symbol,
 # so we provide a shim for it.
@@ -27,8 +43,6 @@ EOF
 RUN gcc -shared -fPIC -o /usr/local/lib/claude_fix.so /tmp/claude_fix.c &&\
     rm /tmp/claude_fix.c
 
-ENV LD_PRELOAD=/usr/local/lib/claude_fix.so
-
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${CLAUDE_VERSION}"\
@@ -40,6 +54,10 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --checksum-jq '.platforms["linux-{arch}-musl"] | (.checksum + " " + .binary)'\
     --install-to "/usr/local/bin/"\
     --verify 'claude --version | grep -qF "{version}"'
+
+
+FROM base AS opencode
+ARG TARGETPLATFORM TARGETARCH OPENCODE_VERSION
 
 # opencode ships a native musl build, so it needs no compatibility shim. Checksums
 # come from the GitHub releases-by-tag API: each asset carries a `digest`
@@ -57,29 +75,25 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --install-to "/usr/local/bin/"\
     --verify 'opencode --version | grep -qF "{version}"'
 
-# Bun runtime, required by the pi coding agent installed below. Uses the musl
-# build, mirroring the typescript image. `bun add -g` links pi's binary into
-# /bun/bin, which is placed on PATH.
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM base
+USER root
+
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
-RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
-    download.sh\
-    --var "version=${BUN_VERSION}"\
-    --platform-arch "linux/amd64=x64"\
-    --platform-arch "linux/arm64=aarch64"\
-    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}-musl.zip"\
-    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
-    --install-paths "bun-linux-{arch}-musl/bun"\
-    --install-to "/usr/local/bin/"\
-    --verify "bun --version | grep -qF '{version}'"
-
-# pi's binary is a `#!/usr/bin/env node` script. Bun runs in Node-compatibility
-# mode when invoked as `node`, so a node->bun symlink lets pi run without a
-# separate Node.js runtime. --ignore-scripts is safe: pi has no postinstall.
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+COPY --from=bun --chown=nonroot:nonroot /bun/install/global /bun/install/global
+COPY --from=bun --chown=nonroot:nonroot /bun/bin /bun/bin
 RUN ln -s /usr/local/bin/bun /usr/local/bin/node
-RUN mkdir -p /bun/bin &&\
-    bun add -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" &&\
-    pi --version | grep -qF "${PI_VERSION}"
 
-USER nonroot
+COPY --from=claude /usr/local/bin/claude /usr/local/bin/
+COPY --from=claude /usr/local/lib/claude_fix.so /usr/local/lib/
+ENV LD_PRELOAD=/usr/local/lib/claude_fix.so
+
+COPY --from=opencode /usr/local/bin/opencode /usr/local/bin/
+
 WORKDIR /app

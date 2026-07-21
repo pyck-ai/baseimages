@@ -1,17 +1,17 @@
 # TypeScript Images
 
-TypeScript/JavaScript runtime images powered by [Bun](https://bun.sh). Bun is used as the runtime, package manager, bundler, and test runner — it also executes TypeScript directly with no separate compile step.
+TypeScript/JavaScript runtime images powered by [Bun](https://bun.sh). Bun is used as the runtime, package manager, bundler, and test runner - it also executes TypeScript directly with no separate compile step.
 
 ## Variants
 
-| Image | Based on | Tags |
-|-------|----------|------|
-| Alpine | our [alpine base](../base/README.md) | see below |
-| Debian | our [debian base](../base/README.md) | see below |
+| Variant | Tag | Based on |
+|---------|-----|----------|
+| Alpine | `typescript:alpine` | our [base](../base/README.md) (Alpine) + musl-compatible Bun build |
+| Debian | `typescript:debian` | our [base](../base/README.md) (Debian) + standard glibc Bun build |
 
-The Alpine variant uses the musl-compatible Bun build. The Debian variant uses the standard glibc build.
+Current version is pinned in [`buildargs.conf`](../../buildargs.conf) (`BUN_VERSION`).
 
-Current version is defined in [`buildargs.conf`](../../buildargs.conf).
+## Tags
 
 ### Alpine tags
 
@@ -19,44 +19,54 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf).
 |-----|-------------|
 | `typescript:latest` | Most recent Bun on Alpine |
 | `typescript:alpine` | Most recent Bun on Alpine |
-| `typescript:<major>` | Major-version alias, e.g. `typescript:1` |
-| `typescript:<major.minor>` | Minor-version alias, e.g. `typescript:1.2` |
-| `typescript:<version>` | Exact pinned version, e.g. `typescript:1.2.3` |
-| `typescript:<major>-alpine` | Major alias on Alpine, e.g. `typescript:1-alpine` |
-| `typescript:<major.minor>-alpine` | Minor alias on Alpine, e.g. `typescript:1.2-alpine` |
-| `typescript:<version>-alpine` | Exact version on Alpine, e.g. `typescript:1.2.3-alpine` |
+| `typescript:<major>` | Major-version alias |
+| `typescript:<major>.<minor>` | Minor-version alias |
+| `typescript:<version>` | Exact pinned version |
+| `typescript:<major>-alpine` | Major alias on Alpine |
+| `typescript:<major>.<minor>-alpine` | Minor alias on Alpine |
+| `typescript:<version>-alpine` | Exact version on Alpine |
 
 ### Debian tags
 
 | Tag | Description |
 |-----|-------------|
 | `typescript:debian` | Most recent Bun on Debian |
-| `typescript:<major>-debian` | Major alias on Debian, e.g. `typescript:1-debian` |
-| `typescript:<major.minor>-debian` | Minor alias on Debian, e.g. `typescript:1.2-debian` |
-| `typescript:<version>-debian` | Exact pinned version on Debian, e.g. `typescript:1.2.3-debian` |
+| `typescript:<major>-debian` | Major alias on Debian |
+| `typescript:<major>.<minor>-debian` | Minor alias on Debian |
+| `typescript:<version>-debian` | Exact pinned version on Debian |
 
 ## What is included
 
-### Bun
+### Tools
 
-| Binary | Path | Alpine | Debian | Description |
-|--------|------|--------|--------|-------------|
-| `bun` | `/usr/local/bin/bun` | ✅ | ✅ | Runtime, package manager, bundler, and test runner |
+| Tool | Binary | Alpine | Debian | Source |
+|------|--------|--------|--------|--------|
+| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | GitHub release, `BUN_VERSION` |
 
-Bun runs TypeScript, JavaScript, JSX, and TSX files directly.
+Bun runs TypeScript, JavaScript, JSX, and TSX files directly. This image does not create a `node` symlink to `bun` (the `agent` and `all-in-one` images do).
 
 ### Environment
 
 | Variable | Value | Description |
-|----------|-------|-------------|
+|----------|-------|--------------|
 | `BUN_INSTALL` | `/bun` | Bun global install prefix; `bun install -g` puts binaries here |
 | `PATH` | prepends `/bun/bin` | Global Bun-installed binaries on PATH |
 
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+
 ### Default user
 
-Runs as `nonroot` (UID/GID 65532). `WORKDIR` is `/app`.
+**Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
+
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, and `/bun` is nonroot-owned, so `bun add -g` also works under `--user 65532`, landing the installed binary on PATH. `WORKDIR` is `/app`.
 
 ## Usage
+
+Run unprivileged instead of the root default:
+
+```sh
+docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/typescript:latest bun --version
+```
 
 ### As a build stage
 

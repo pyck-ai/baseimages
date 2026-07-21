@@ -26,16 +26,22 @@ A minimal `scratch`-based image for running statically-compiled binaries in prod
 | `/root` | alpine base | Root home directory (owned root:root) |
 | `/home/nonroot` | alpine base | nonroot home directory (owned 65532:65532) |
 
-### Environment variables
+### /tmp handling
 
-| Variable | Value |
-|----------|-------|
-| `SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt` |
-| `HOME` | `/home/nonroot` |
+The sticky bit on `/tmp` cannot be set via a `COPY` or `RUN` in a scratch image, so `/tmp` is provisioned from a pre-built `tmp.tar` archive via `ADD`. The archive contains a single empty directory with permissions `1777`.
+
+### Environment
+
+| Variable | Value | Description |
+|----------|-------|--------------|
+| `SSL_CERT_FILE` | `/etc/ssl/certs/ca-certificates.crt` | TLS trust store path |
+| `HOME` | `/home/nonroot` | Home directory |
 
 ### Default user
 
-Runs as `nonroot` (UID/GID 65532). `WORKDIR` is `/home/nonroot`.
+Runs as `nonroot` (UID/GID 65532) by default, declared numerically as `USER 65532` — the distroless convention for images with no shell. `WORKDIR` is `/home/nonroot`.
+
+`--user 0` can override the runtime uid to root, but since this is a scratch image with no shell or package manager, there is nothing to install — it only changes which uid the entrypoint binary runs as.
 
 ## Usage
 
@@ -48,10 +54,6 @@ ENTRYPOINT ["/mybinary"]
 ```
 
 The binary must be statically linked. For Go binaries, ensure `CGO_ENABLED=0`.
-
-## /tmp handling
-
-The sticky bit on `/tmp` cannot be set via a `COPY` or `RUN` in a scratch image, so `/tmp` is provisioned from a pre-built `tmp.tar` archive via `ADD`. The archive contains a single empty directory with permissions `1777`.
 
 ## Build
 

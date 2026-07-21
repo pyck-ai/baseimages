@@ -11,6 +11,10 @@ Images fall into a few kinds:
 
 Whenever a developer-tooling image is added, removed, or renamed, adjust `all-in-one` to match — it must bundle every developer-tooling image, and only the runtime / deployment images above are exempt.
 
+## Default user
+
+Default `USER` follows the image's role: build-substrate or build-toolchain images (`base` + the developer-tooling set + `all-in-one`) default to **root** and keep a `nonroot` account (uid/gid 65532) reachable via `--user 65532`; run-this-artifact (runtime/deploy) images (`nginx`, `static`) default to **nonroot**. New images must classify accordingly — see the root [`README.md`](README.md) "Conventions" section for the rationale (GitHub Actions job-container compatibility).
+
 ## README maintenance
 
 README files in this repository document what each Docker image contains. Keep them accurate and up to date.

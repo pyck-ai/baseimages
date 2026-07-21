@@ -11,6 +11,17 @@ The images fall into a few kinds:
 - **All-in-one** — the full developer-tooling set in one image, for local development where juggling many images isn't worth it. Not intended for CI (size and attack surface).
 - **Runtime & deployment** — single-purpose images that run or serve an application rather than build one. Consumed standalone and intentionally excluded from `all-in-one`.
 
+### Conventions
+
+Default `USER` follows the image's role:
+
+| Role | Images | Default user | Nonroot escape hatch |
+|------|--------|---------------|-----------------------|
+| Build substrate / developer tooling | `base`, `golang`, `python`, `typescript`, `rover`, `agent`, `all-in-one` | `root` (uid 0) | `--user 65532` drops to the `nonroot` account; each image's tool dirs are nonroot-owned |
+| Runtime / deployment | `nginx` (101), `static` (65532) | nonroot | `--user 0` elevates to root, e.g. to install packages or use the image as a build environment |
+
+Build-substrate images default to root so they work as GitHub Actions job containers: GHA bind-mounts the workspace owned by the host runner uid and runs steps as the image's `USER`, and a nonroot default breaks `actions/checkout` (git "dubious ownership"), `$GITHUB_ENV`/`$GITHUB_OUTPUT`, and apt/apk — the same reason the official `golang`/`python` images default to root. Runtime images keep nonroot for deployment security. `WORKDIR` is `/app` for the images that use it; see each image's README for exceptions (`static` uses `/home/nonroot`).
+
 ### Base
 
 | Image | Description |
@@ -120,12 +131,14 @@ graph LR
   base-debian --> python-debian["python:debian"]
   base-debian --> rover
 
-  golang-alpine --> aio-alpine["all-in-one:alpine"]
+  base-alpine --> aio-alpine["all-in-one:alpine"]
+  golang-alpine --> aio-alpine
   agent-alpine --> aio-alpine
   typescript-alpine --> aio-alpine
   python-alpine --> aio-alpine
 
-  golang-debian --> aio-debian["all-in-one:debian"]
+  base-debian --> aio-debian["all-in-one:debian"]
+  golang-debian --> aio-debian
   agent-debian --> aio-debian
   typescript-debian --> aio-debian
   rover --> aio-debian

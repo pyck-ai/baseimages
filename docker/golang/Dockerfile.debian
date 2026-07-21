@@ -4,18 +4,15 @@ ARG GOLANG_VERSION=1
 ARG DEBIAN_RELEASE=trixie
 
 #===============================================================================
-# DEPENDENCIES
-#===============================================================================
-
-FROM golang:${GOLANG_VERSION}-${DEBIAN_RELEASE} AS golang
-
-#===============================================================================
 # DOWNLOADS
 #===============================================================================
 
+FROM golang:${GOLANG_VERSION}-${DEBIAN_RELEASE} AS golang
+ARG TARGETPLATFORM TARGETARCH GOLANG_VERSION
+RUN go version | grep -qF "go version go${GOLANG_VERSION} linux/"
+
 FROM golang AS delve
-ARG DELVE_VERSION
-USER 0
+ARG TARGETPLATFORM TARGETARCH DELVE_VERSION
 # Temporary workaround: install dlv via `go install` instead of downloading the
 # GitHub release artifact, because upstream's release CI is currently not
 # attaching prebuilt binaries/checksums to the release (breaking download.sh).
@@ -25,9 +22,8 @@ RUN --mount=type=cache,id=go-build,target=/root/.cache/go-build,sharing=shared\
     CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}\
     && dlv version | grep -qF "Version: ${DELVE_VERSION}"
 
-FROM debian AS goarchlint
+FROM base AS goarchlint
 ARG TARGETPLATFORM TARGETARCH GOARCHLINT_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${GOARCHLINT_VERSION}"\
@@ -39,9 +35,8 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --install-to "/usr/local/bin/"\
     --verify "go-arch-lint version --output-color=false | grep -qF 'version: {version}'"
 
-FROM debian AS golangcilint
+FROM base AS golangcilint
 ARG TARGETPLATFORM TARGETARCH GOLANGCILINT_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${GOLANGCILINT_VERSION}"\
@@ -53,9 +48,8 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --install-to "/usr/local/bin/"\
     --verify "golangci-lint --version | grep -qF 'version {version}'"
 
-FROM debian AS gotestsum
+FROM base AS gotestsum
 ARG TARGETPLATFORM TARGETARCH GOTESTSUM_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${GOTESTSUM_VERSION}"\
@@ -71,10 +65,8 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 # RESULT
 #===============================================================================
 
-FROM debian
-
-ARG TARGETPLATFORM
-ARG TARGETARCH
+FROM base
+USER root
 
 ENV GOPATH=/go
 ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
@@ -85,9 +77,8 @@ ENV GOPROXY=https://go.pyck.cloud,direct
 # All builds are statically linked by default; set CGO_ENABLED=1 explicitly if you need cgo.
 ENV CGO_ENABLED=0
 
-USER 0
 COPY --from=golang /usr/local/go /usr/local/go
-RUN mkdir -p /go/bin
+RUN install -d -o nonroot -g nonroot /go /go/bin /go/pkg/mod /var/cache/go
 
 COPY --from=delve /usr/local/bin/dlv /usr/local/bin/
 COPY --from=goarchlint /usr/local/bin/go-arch-lint /usr/local/bin/

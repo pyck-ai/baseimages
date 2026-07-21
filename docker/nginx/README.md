@@ -13,10 +13,10 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 | Tag | Description |
 |-----|-------------|
 | `nginx:latest` | Most recent build |
-| `nginx:<major.minor>` | Minor-version alias, e.g. `nginx:1.29` |
-| `nginx:<major>` | Major-version alias, e.g. `nginx:1` |
+| `nginx:<major>.<minor>` | Minor-version alias |
+| `nginx:<major>` | Major-version alias |
 
-`NGINX_VERSION` tracks the upstream `nginxinc/nginx-unprivileged` image at `<major.minor>` granularity, so there is no three-part `nginx:<major.minor.patch>` tag.
+`NGINX_VERSION` tracks the upstream `nginxinc/nginx-unprivileged` image at `<major>.<minor>` granularity, so there is no three-part `nginx:<major>.<minor>.<patch>` tag.
 
 ## What is included
 
@@ -35,13 +35,13 @@ Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
 |------|----------|-------------|
 | 8080 | TCP | HTTP |
 
-### Default user
-
-Runs as `nginx` (the unprivileged user from the base image). `WORKDIR` is `/app`.
-
 ### OpenTelemetry
 
 The OTel module (`ngx_otel_module.so`) is loaded but tracing is off by default (`otel_trace off`). To enable, configure an OTel Collector endpoint in `conf.d/otel.conf` or provide your own override and set `otel_trace on`.
+
+### Default user
+
+Runs as `nginx` (the unprivileged user from the base image) by default. `WORKDIR` is `/app`. Run with `--user 0` for a root shell to install packages or use the image as a build environment (see the "Override the nginx config" example below, which does this via `USER root`/`USER nginx` in a derived Dockerfile).
 
 ## Usage
 

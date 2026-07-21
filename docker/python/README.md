@@ -1,73 +1,83 @@
-# Python Image
+# Python Images
 
-Python development image with [uv](https://github.com/astral-sh/uv) for package management and [Ruff](https://github.com/astral-sh/ruff) for linting and formatting.
+Python development images with [uv](https://github.com/astral-sh/uv) for package management and [Ruff](https://github.com/astral-sh/ruff) for linting and formatting.
 
 ## Variants
 
-| Image | Based on | Tags |
-|-------|----------|------|
-| Alpine | our [alpine base](../base/README.md) | see below |
-| Debian | our [debian base](../base/README.md) | see below |
+| Variant | Tag | Based on |
+|---------|-----|----------|
+| Alpine | `python:alpine` | our [base](../base/README.md) (Alpine) + musl-managed CPython |
+| Debian | `python:debian` | our [base](../base/README.md) (Debian) + glibc-managed CPython |
 
-Both variants install the same uv-managed CPython. uv now ships musl [python-build-standalone](https://github.com/astral-sh/python-build-standalone) builds (astral-sh/uv#6890, resolved), so the Alpine variant uses a musl CPython and the Debian variant a glibc one.
+Both variants install the same uv-managed CPython via [python-build-standalone](https://github.com/astral-sh/python-build-standalone); the Alpine variant uses a musl build, the Debian variant a glibc build.
 
-Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
+Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`PYTHON_VERSION`, `UV_VERSION`, `RUFF_VERSION`).
 
 ## Tags
 
+### Alpine tags
+
 | Tag | Description |
 |-----|-------------|
-| `python:latest`, `python:alpine` | Most recent build (Alpine) |
-| `python:<major>`, `python:<major.minor>` | Alpine version aliases, e.g. `python:3`, `python:3.14` |
-| `python:<major>-alpine`, `python:<major.minor>-alpine` | Alpine version aliases with explicit suffix |
+| `python:latest` | Most recent build (Alpine) |
+| `python:alpine` | Most recent build (Alpine) |
+| `python:<major>` | Major-version alias |
+| `python:<major>.<minor>` | Minor-version alias |
+| `python:<major>-alpine` | Major-version alias, explicit suffix |
+| `python:<major>.<minor>-alpine` | Minor-version alias, explicit suffix |
+
+### Debian tags
+
+| Tag | Description |
+|-----|-------------|
 | `python:debian` | Most recent build (Debian) |
-| `python:<major>-debian`, `python:<major.minor>-debian` | Debian version aliases, e.g. `python:3-debian`, `python:3.14-debian` |
+| `python:<major>-debian` | Major-version alias |
+| `python:<major>.<minor>-debian` | Minor-version alias |
 
 ## What is included
 
 ### Python
 
-Python is installed via `uv python install` using [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions. The install is self-contained under `UV_PYTHON_INSTALL_DIR` — no system Python is involved.
+Python is installed via `uv python install` using [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions. The install is self-contained under `UV_PYTHON_INSTALL_DIR` - no system Python is involved.
 
 The following binaries are symlinked into `/usr/local/bin`:
 
 | Binary | Alpine | Debian | Description |
 |--------|--------|--------|-------------|
-| `python<major.minor>` | ✅ | ✅ | Versioned Python interpreter, e.g. `python3.13` |
+| `python<major>.<minor>` | ✅ | ✅ | Versioned Python interpreter |
 | `python3` | ✅ | ✅ | Alias for the versioned interpreter |
 | `python` | ✅ | ✅ | Alias for `python3` |
-| `pip<major.minor>` | ✅ | ✅ | Versioned pip, e.g. `pip3.13` |
+| `pip<major>.<minor>` | ✅ | ✅ | Versioned pip |
 | `pip3` | ✅ | ✅ | Alias for the versioned pip |
 | `pip` | ✅ | ✅ | Alias for `pip3` |
-| `pydoc<major.minor>` | ✅ | ✅ | Versioned pydoc, e.g. `pydoc3.13` |
+| `pydoc<major>.<minor>` | ✅ | ✅ | Versioned pydoc |
 | `pydoc3` | ✅ | ✅ | Alias for the versioned pydoc |
 | `pydoc` | ✅ | ✅ | Alias for `pydoc3` |
 
-### uv
+### Tools
 
-| Binary | Path | Alpine | Debian | Description |
-|--------|------|--------|--------|-------------|
-| `uv` | `/usr/local/bin/uv` | ✅ | ✅ | Python package and project manager |
-| `uvx` | `/usr/local/bin/uvx` | ✅ | ✅ | Run tools from PyPI without installing (`uv tool run`) |
-
-### Ruff
-
-| Binary | Path | Alpine | Debian | Description |
-|--------|------|--------|--------|-------------|
-| `ruff` | `/usr/local/bin/ruff` | ✅ | ✅ | Python linter and formatter |
+| Tool | Binary | Alpine | Debian | Source |
+|------|--------|--------|--------|--------|
+| [uv](https://github.com/astral-sh/uv) | `uv` | ✅ | ✅ | GitHub release, `UV_VERSION` |
+| [uv](https://github.com/astral-sh/uv) | `uvx` | ✅ | ✅ | symlink to `uv` (`uv tool run`) |
+| [Ruff](https://github.com/astral-sh/ruff) | `ruff` | ✅ | ✅ | GitHub release, `RUFF_VERSION` |
 
 ### Environment
 
 | Variable | Value | Description |
-|----------|-------|-------------|
+|----------|-------|--------------|
 | `UV_PYTHON_INSTALL_DIR` | `/usr/local/python` | Where uv installs managed Python versions |
 | `UV_PYTHON_PREFERENCE` | `only-managed` | Always use the uv-managed Python, never the system one |
 | `PYTHONDONTWRITEBYTECODE` | `1` | Suppress `.pyc` file generation |
 | `PYTHONUNBUFFERED` | `1` | Force unbuffered stdout/stderr for clean container logs |
 
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+
 ### Default user
 
-Runs as `nonroot` (UID/GID 65532). `WORKDIR` is `/app`.
+**Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
+
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, and `/usr/local/python` is nonroot-owned, so `uv python install` of an additional version also works under `--user 65532`. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -78,6 +88,12 @@ docker run --rm \
   -v $(pwd):/app \
   ghcr.io/pyck-ai/baseimages/python:latest \
   python script.py
+```
+
+Run unprivileged instead of the root default:
+
+```sh
+docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/python:latest python --version
 ```
 
 ### Install dependencies with uv
@@ -101,5 +117,7 @@ COPY . .
 ## Build
 
 ```sh
-task build -- python
+task build -- python          # build both alpine and debian variants
+task build -- python-alpine   # alpine only
+task build -- python-debian   # debian only
 ```

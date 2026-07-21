@@ -74,26 +74,80 @@ group "ci-stage-1" {
   targets = [
     "base",
     "nginx",
+    "static",
   ]
 }
 
 group "ci-stage-2" {
   targets = [
-    "static",
-    "golang",
-    "agent",
-    "typescript",
-    "python",
-    "rover",
+    "golang",     # needs base
+    "agent",      # needs base
+    "typescript", # needs base
+    "python",     # needs base
+    "rover",      # needs base
   ]
 }
 
 group "ci-stage-3" {
   targets = [
-    "all-in-one",
+    "all-in-one", # needs stage-2
   ]
 }
 
+
+
+
+# ==============================================================================
+# AGENT
+# ==============================================================================
+#
+# Bundles multiple coding-agent CLIs (Claude Code + opencode). Because it ships
+# more than one tool, version tags are namespaced per tool — claude-<version> and
+# opencode-<version> — mirroring the all-in-one per-tool tag convention.
+
+group "agent" {
+  targets = [
+    "agent-alpine",
+    "agent-debian",
+  ]
+}
+
+target "agent-alpine" {
+  inherits = ["_common"]
+  context = "./docker/agent"
+  dockerfile = "Dockerfile.alpine"
+  contexts = {
+    "base" = "target:base-alpine"
+  }
+  tags = concat(
+    ["${REGISTRY}/agent:latest", "${REGISTRY}/agent:alpine"],
+    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   ""),
+    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   "-alpine"),
+    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", ""),
+    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", "-alpine"),
+    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       ""),
+    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       "-alpine"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-alpine,mode=max"]
+}
+
+target "agent-debian" {
+  inherits = ["_common"]
+  context = "./docker/agent"
+  dockerfile = "Dockerfile.debian"
+  contexts = {
+    "base" = "target:base-debian"
+  }
+  tags = concat(
+    ["${REGISTRY}/agent:debian"],
+    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   "-debian"),
+    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", "-debian"),
+    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       "-debian"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian,mode=max"]
+}
 
 
 # ==============================================================================
@@ -132,30 +186,6 @@ target "base-debian" {
 }
 
 # ==============================================================================
-# STATIC
-# ==============================================================================
-
-group "static" {
-  targets = [
-    "static-alpine",
-  ]
-}
-
-target "static-alpine" {
-  inherits = ["_common"]
-  context = "./docker/static"
-  dockerfile = "Dockerfile.alpine"
-  contexts = {
-    "alpine" = "target:base-alpine"
-  }
-  tags = [
-    "${REGISTRY}/static:latest",
-  ]
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:static-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:static-alpine,mode=max"]
-}
-
-# ==============================================================================
 # GOLANG
 # ==============================================================================
 
@@ -171,7 +201,7 @@ target "golang-alpine" {
   context = "./docker/golang"
   dockerfile = "Dockerfile.alpine"
   contexts = {
-    "alpine" = "target:base-alpine"
+    "base" = "target:base-alpine"
   }
   tags = concat(
     ["${REGISTRY}/golang:latest", "${REGISTRY}/golang:alpine", "${REGISTRY}/golang:alpine-${ALPINE_VERSION}"],
@@ -187,7 +217,7 @@ target "golang-debian" {
   context = "./docker/golang"
   dockerfile = "Dockerfile.debian"
   contexts = {
-    "debian" = "target:base-debian"
+    "base" = "target:base-debian"
   }
   tags = concat(
     ["${REGISTRY}/golang:debian", "${REGISTRY}/golang:debian-${DEBIAN_RELEASE}"],
@@ -201,119 +231,16 @@ target "golang-debian" {
 # NGINX
 # ==============================================================================
 
-group "nginx" {
-  targets = [
-    "nginx-alpine",
-  ]
-}
-
-target "nginx-alpine" {
+target "nginx" {
   inherits = ["_common"]
   context = "./docker/nginx"
-  dockerfile = "Dockerfile.alpine"
+  dockerfile = "Dockerfile"
   tags = concat(
     ["${REGISTRY}/nginx:latest"],
     vtags(REGISTRY, "nginx", NGINX_VERSION, "", ""),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nginx-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nginx-alpine,mode=max"]
-}
-
-# ==============================================================================
-# AGENT
-# ==============================================================================
-#
-# Bundles multiple coding-agent CLIs (Claude Code + opencode). Because it ships
-# more than one tool, version tags are namespaced per tool — claude-<version> and
-# opencode-<version> — mirroring the all-in-one per-tool tag convention.
-
-group "agent" {
-  targets = [
-    "agent-alpine",
-    "agent-debian",
-  ]
-}
-
-target "agent-alpine" {
-  inherits = ["_common"]
-  context = "./docker/agent"
-  dockerfile = "Dockerfile.alpine"
-  contexts = {
-    "alpine" = "target:base-alpine"
-  }
-  tags = concat(
-    ["${REGISTRY}/agent:latest", "${REGISTRY}/agent:alpine"],
-    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   ""),
-    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   "-alpine"),
-    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", ""),
-    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", "-alpine"),
-    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       ""),
-    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       "-alpine"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-alpine,mode=max"]
-}
-
-target "agent-debian" {
-  inherits = ["_common"]
-  context = "./docker/agent"
-  dockerfile = "Dockerfile.debian"
-  contexts = {
-    "debian" = "target:base-debian"
-  }
-  tags = concat(
-    ["${REGISTRY}/agent:debian"],
-    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   "-debian"),
-    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", "-debian"),
-    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       "-debian"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian,mode=max"]
-}
-
-# ==============================================================================
-# TYPESCRIPT
-# ==============================================================================
-
-group "typescript" {
-  targets = [
-    "typescript-alpine",
-    "typescript-debian",
-  ]
-}
-
-target "typescript-alpine" {
-  inherits = ["_common"]
-  context = "./docker/typescript"
-  dockerfile = "Dockerfile.alpine"
-  contexts = {
-    "alpine" = "target:base-alpine"
-  }
-  tags = concat(
-    [
-      "${REGISTRY}/typescript:latest", 
-      "${REGISTRY}/typescript:alpine",
-    ],
-    vtags(REGISTRY, "typescript", BUN_VERSION, "", ""),
-    vtags(REGISTRY, "typescript", BUN_VERSION, "", "-alpine"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-alpine,mode=max"]
-}
-
-target "typescript-debian" {
-  inherits = ["_common"]
-  context = "./docker/typescript"
-  dockerfile = "Dockerfile.debian"
-  contexts = {
-    "debian" = "target:base-debian"
-  }
-  tags = concat(
-    ["${REGISTRY}/typescript:debian"],
-    vtags(REGISTRY, "typescript", BUN_VERSION, "", "-debian"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian,mode=max"]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nginx"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nginx,mode=max"]
 }
 
 # ==============================================================================
@@ -332,7 +259,7 @@ target "python-alpine" {
   context = "./docker/python"
   dockerfile = "Dockerfile.alpine"
   contexts = {
-    "alpine" = "target:base-alpine"
+    "base" = "target:base-alpine"
   }
   tags = concat(
     ["${REGISTRY}/python:latest", "${REGISTRY}/python:alpine"],
@@ -348,7 +275,7 @@ target "python-debian" {
   context = "./docker/python"
   dockerfile = "Dockerfile.debian"
   contexts = {
-    "debian" = "target:base-debian"
+    "base" = "target:base-debian"
   }
   tags = concat(
     ["${REGISTRY}/python:debian"],
@@ -373,7 +300,7 @@ target "rover-debian" {
   context = "./docker/rover"
   dockerfile = "Dockerfile.debian"
   contexts = {
-    "debian" = "target:base-debian"
+    "base" = "target:base-debian"
   }
   tags = concat(
     ["${REGISTRY}/rover:latest"],
@@ -382,6 +309,71 @@ target "rover-debian" {
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian,mode=max"]
 }
+
+# ==============================================================================
+# STATIC
+# ==============================================================================
+
+target "static" {
+  inherits = ["_common"]
+  context = "./docker/static"
+  dockerfile = "Dockerfile"
+  contexts = {
+    "base" = "target:base-alpine"
+  }
+  tags = [
+    "${REGISTRY}/static:latest",
+  ]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:static"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:static,mode=max"]
+}
+
+# ==============================================================================
+# TYPESCRIPT
+# ==============================================================================
+
+group "typescript" {
+  targets = [
+    "typescript-alpine",
+    "typescript-debian",
+  ]
+}
+
+target "typescript-alpine" {
+  inherits = ["_common"]
+  context = "./docker/typescript"
+  dockerfile = "Dockerfile.alpine"
+  contexts = {
+    "base" = "target:base-alpine"
+  }
+  tags = concat(
+    [
+      "${REGISTRY}/typescript:latest", 
+      "${REGISTRY}/typescript:alpine",
+    ],
+    vtags(REGISTRY, "typescript", BUN_VERSION, "", ""),
+    vtags(REGISTRY, "typescript", BUN_VERSION, "", "-alpine"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-alpine"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-alpine,mode=max"]
+}
+
+target "typescript-debian" {
+  inherits = ["_common"]
+  context = "./docker/typescript"
+  dockerfile = "Dockerfile.debian"
+  contexts = {
+    "base" = "target:base-debian"
+  }
+  tags = concat(
+    ["${REGISTRY}/typescript:debian"],
+    vtags(REGISTRY, "typescript", BUN_VERSION, "", "-debian"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian,mode=max"]
+}
+
+
 
 # ==============================================================================
 # ALL-IN-ONE
@@ -399,7 +391,7 @@ target "all-in-one-alpine" {
   context = "./docker/all-in-one"
   dockerfile = "Dockerfile.alpine"
   contexts = {
-    "alpine"     = "target:base-alpine"
+    "base"       = "target:base-alpine"
     "golang"     = "target:golang-alpine"
     "typescript" = "target:typescript-alpine"
     "agent"      = "target:agent-alpine"
@@ -421,7 +413,7 @@ target "all-in-one-debian" {
   context = "./docker/all-in-one"
   dockerfile = "Dockerfile.debian"
   contexts = {
-    "debian"     = "target:base-debian"
+    "base"       = "target:base-debian"
     "golang"     = "target:golang-debian"
     "typescript" = "target:typescript-debian"
     "agent"      = "target:agent-debian"

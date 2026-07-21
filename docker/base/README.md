@@ -4,87 +4,90 @@ Two hardened base images providing a consistent foundation for all other images 
 
 ## Variants
 
-| Image | Based on |
-|-------|----------|
-| Alpine | `alpine:<ALPINE_VERSION>` |
-| Debian | `debian:<DEBIAN_RELEASE>` |
+| Variant | Tag | Based on |
+|---------|-----|----------|
+| Alpine | `base:alpine` | `alpine:<alpine_version>` |
+| Debian | `base:debian` | `debian:<debian_release>` |
 
-Current versions are defined in [`buildargs.conf`](../../buildargs.conf).
+Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`ALPINE_VERSION`, `DEBIAN_RELEASE`).
 
 ## Tags
 
-### Alpine
+### Alpine tags
 
 | Tag | Description |
 |-----|-------------|
 | `base:latest` | Most recent Alpine build |
 | `base:alpine` | Most recent Alpine build |
-| `base:alpine-<major>` | Major Alpine version, e.g. `base:alpine-3` |
-| `base:alpine-<version>` | Exact Alpine version, e.g. `base:alpine-3.22` |
+| `base:alpine-<alpine_version>` | Exact Alpine version this build was made from |
+| `base:alpine-<major>` | Latest build on that Alpine major |
 
-### Debian
+### Debian tags
 
 | Tag | Description |
 |-----|-------------|
 | `base:debian` | Most recent Debian build |
-| `base:debian-<release>` | Debian release name, e.g. `base:debian-bookworm` |
+| `base:debian-<release>` | Debian release name this build was made from |
 
 ## What is included
 
-Both variants provide the same set of tools and conventions so downstream images can be written identically regardless of which distro they target.
+Both variants provide the same set of tools and conventions so downstream images can be written identically regardless of which distro they target. CA certificates are refreshed via `update-ca-certificates`, the timezone is set to UTC, `download.sh` is installed at `/usr/local/sbin/download.sh` (a checksum-verified binary download helper used by all downstream images to install third-party tools), and `git config --system --add safe.directory "*"` is set so git works inside any bind-mounted repository regardless of file ownership.
 
-### System packages
+### Packages
 
-| Package | Alpine name | Debian name |
-|---------|-------------|-------------|
-| Bash | `bash` | `bash` |
-| Build toolchain | `build-base`, `gcc`, `musl-dev`, `musl` | `build-essential`, `gcc` |
-| CA certificates | `ca-certificates` | `ca-certificates` |
-| Core utils | `coreutils` | `coreutils` |
-| curl | `curl` | `curl` |
-| file | `file` | `file` |
-| gawk | `gawk` | `gawk` |
-| gcompat (glibc shim) | `gcompat`, `libgcc`, `libstdc++` | _(built in)_ |
-| gettext / envsubst | `gettext-envsubst` | `gettext` |
-| git | `git` | `git` |
-| GnuPG | `gnupg` | `gnupg` |
-| jq | `jq` | `jq` |
-| Linux headers | `linux-headers` | `linux-headers-<arch>` |
-| make | `make` | `make` |
-| OpenSSH client | `openssh-client` | `openssh-client` |
-| patch | `patch` | `patch` |
-| rclone | `rclone` | `rclone` |
-| ripgrep | `ripgrep` | `ripgrep` |
-| rsync | `rsync` | `rsync` |
-| tar | `tar` | `tar` |
-| tzdata | `tzdata` | `tzdata` |
-| unzip | `unzip` | `unzip` |
-| wget | `wget` | `wget` |
-| xz | `xz` | `xz-utils` |
-| zip | `zip` | `zip` |
-| zstd | `zstd` | `zstd` |
+| Package | Alpine | Debian | Purpose |
+|---------|--------|--------|---------|
+| Bash | `bash` | `bash` | POSIX-plus shell |
+| Build toolchain | `build-base`, `gcc`, `musl-dev`, `musl` | `build-essential`, `gcc` | C compiler and toolchain |
+| CA certificates | `ca-certificates` | `ca-certificates` | TLS trust store |
+| Core utils | `coreutils` | `coreutils` | GNU core utilities |
+| curl | `curl` | `curl` | HTTP client |
+| fd | `fd` | `fd-find` | Fast file finder — Debian ships the binary as `fdfind`; the Dockerfile symlinks it to `fd`, so the command is `fd` on both variants |
+| file | `file` | `file` | File type detection |
+| gawk | `gawk` | `gawk` | AWK implementation |
+| gcompat (glibc shim) | `gcompat`, `libgcc`, `libstdc++` | _(built in)_ | glibc compatibility for prebuilt binaries |
+| gettext / envsubst | `gettext-envsubst` | `gettext` | `envsubst` template substitution |
+| git | `git` | `git` | Version control |
+| GnuPG | `gnupg` | `gnupg` | GPG signing/verification |
+| jq | `jq` | `jq` | JSON processor |
+| Linux headers | `linux-headers` | `linux-headers-<arch>` | Kernel headers for native builds |
+| make | `make` | `make` | Build automation |
+| OpenSSH client | `openssh-client` | `openssh-client` | SSH client |
+| patch | `patch` | `patch` | Apply diffs |
+| rclone | `rclone` | `rclone` | Cloud storage sync |
+| ripgrep | `ripgrep` | `ripgrep` | Fast recursive search |
+| rsync | `rsync` | `rsync` | File sync |
+| tar | `tar` | `tar` | Archive tool |
+| tzdata | `tzdata` | `tzdata` | Timezone database |
+| unzip | `unzip` | `unzip` | Zip extraction |
+| wget | `wget` | `wget` | HTTP downloader |
+| xz | `xz` | `xz-utils` | LZMA compression |
+| zip | `zip` | `zip` | Zip archiving |
+| zstd | `zstd` | `zstd` | Zstandard compression |
 
-### Third-party tools
+### Tools
 
-| Tool | Binary | Alpine | Debian | Version source |
-|------|--------|--------|--------|----------------|
-| [Task](https://taskfile.dev) | `task` | ✅ | ✅ | `TASKFILE_VERSION` in `buildargs.conf` |
-| [flyctl](https://fly.io/docs/flyctl/) | `flyctl` | ✅ | ✅ | `FLYCTL_VERSION` in `buildargs.conf` |
-| [GitHub CLI](https://cli.github.com) | `gh` | ✅ | ✅ | `GHCLI_VERSION` in `buildargs.conf` |
-| [Helm](https://helm.sh) | `helm` | ✅ | ✅ | `HELM_VERSION` in `buildargs.conf` |
-| [kubectl](https://kubernetes.io/docs/reference/kubectl/) | `kubectl` | ✅ | ✅ | `KUBECTL_VERSION` in `buildargs.conf` |
-| [kustomize](https://kustomize.io) | `kustomize` | ✅ | ✅ | `KUSTOMIZE_VERSION` in `buildargs.conf` |
-| [watchexec](https://github.com/watchexec/watchexec) | `watchexec` | ✅ | ✅ | `WATCHEXEC_VERSION` in `buildargs.conf` |
+| Tool | Binary | Alpine | Debian | Source |
+|------|--------|--------|--------|--------|
+| [Task](https://taskfile.dev) | `task` | ✅ | ✅ | GitHub release, `TASKFILE_VERSION` |
+| [flyctl](https://fly.io/docs/flyctl/) | `flyctl` | ✅ | ✅ | GitHub release, `FLYCTL_VERSION` |
+| [GitHub CLI](https://cli.github.com) | `gh` | ✅ | ✅ | GitHub release, `GHCLI_VERSION` |
+| [Helm](https://helm.sh) | `helm` | ✅ | ✅ | upstream release, `HELM_VERSION` |
+| [kubectl](https://kubernetes.io/docs/reference/kubectl/) | `kubectl` | ✅ | ✅ | dl.k8s.io release, `KUBECTL_VERSION` |
+| [kustomize](https://kustomize.io) | `kustomize` | ✅ | ✅ | GitHub release, `KUSTOMIZE_VERSION` |
+| [watchexec](https://github.com/watchexec/watchexec) | `watchexec` | ✅ | ✅ | GitHub release, `WATCHEXEC_VERSION` |
 
-All third-party tools are present in both variants. System packages are listed per-distro by name above; a name in the Alpine or Debian column means the package is present in that variant.
+### Environment
 
-### Conventions applied
+| Variable | Value | Description |
+|----------|-------|--------------|
+| `DEBIAN_FRONTEND` | `noninteractive` | Debian only — suppresses interactive `apt-get`/`dpkg-reconfigure` prompts. Not set on Alpine. |
 
-- **CA certificates** refreshed via `update-ca-certificates`.
-- **Timezone** set to UTC.
-- **`download.sh`** installed at `/usr/local/sbin/download.sh` — a content-addressed binary download helper with checksum verification, used by all downstream images to install third-party tools.
-- **`nonroot` user** created with UID/GID 65532 (matches Google distroless convention).
-- **`WORKDIR /app`** set as the default working directory.
+### Default user
+
+**Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
+
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532, matching the Google distroless convention) still exists, and `/app` is nonroot-owned, so `--user 65532` drops privileges cleanly. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -96,6 +99,12 @@ RUN ...
 
 FROM ghcr.io/pyck-ai/baseimages/base:debian AS build
 RUN ...
+```
+
+Run unprivileged instead of the root default:
+
+```sh
+docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/base:alpine id
 ```
 
 ## Build

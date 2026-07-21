@@ -6,9 +6,8 @@ ARG BUN_VERSION=1
 # DOWNLOADS
 #===============================================================================
 
-FROM alpine AS bun
+FROM base AS bun
 ARG TARGETPLATFORM TARGETARCH BUN_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${BUN_VERSION}"\
@@ -24,16 +23,13 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 # RESULT
 #===============================================================================
 
-FROM alpine
-
-ARG TARGETPLATFORM
-ARG TARGETARCH
+FROM base
+USER root
 
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
 
-USER 0
-RUN mkdir -p /bun/bin
+RUN install -d -o nonroot -g nonroot /bun /bun/bin /bun/install /bun/install/global
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/
 
 WORKDIR /app

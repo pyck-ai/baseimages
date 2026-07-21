@@ -28,6 +28,7 @@ RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
         ca-certificates\
         coreutils\
         curl\
+        fd\
         file\
         gawk\
         gcc\
@@ -64,15 +65,12 @@ COPY download.sh /usr/local/sbin/download.sh
 RUN addgroup -g 65532 nonroot &&\
     adduser -D -u 65532 -G nonroot -s /bin/sh nonroot
 
-WORKDIR /app
-
 #===============================================================================
 # DOWNLOADS
 #===============================================================================
 
 FROM base AS taskfile
 ARG TARGETPLATFORM TARGETARCH TASKFILE_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${TASKFILE_VERSION}"\
@@ -86,7 +84,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS flyctl
 ARG TARGETPLATFORM TARGETARCH FLYCTL_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${FLYCTL_VERSION}"\
@@ -100,7 +97,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS ghcli
 ARG TARGETPLATFORM TARGETARCH GHCLI_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${GHCLI_VERSION}"\
@@ -112,7 +108,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS helm
 ARG TARGETPLATFORM TARGETARCH HELM_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${HELM_VERSION}"\
@@ -124,7 +119,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS kubectl
 ARG TARGETPLATFORM TARGETARCH KUBECTL_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${KUBECTL_VERSION}"\
@@ -135,7 +129,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS kustomize
 ARG TARGETPLATFORM TARGETARCH KUSTOMIZE_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${KUSTOMIZE_VERSION}"\
@@ -147,7 +140,6 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 
 FROM base AS watchexec
 ARG TARGETPLATFORM TARGETARCH WATCHEXEC_VERSION
-USER 0
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     download.sh\
     --var "version=${WATCHEXEC_VERSION}"\
@@ -164,6 +156,7 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
 #===============================================================================
 
 FROM base
+USER root
 
 COPY --from=taskfile /usr/local/bin/task /usr/local/bin/
 COPY --from=flyctl /usr/local/bin/flyctl /usr/local/bin/
@@ -172,3 +165,8 @@ COPY --from=helm /usr/local/bin/helm /usr/local/bin/
 COPY --from=kubectl /usr/local/bin/kubectl /usr/local/bin/
 COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/
 COPY --from=watchexec /usr/local/bin/watchexec /usr/local/bin/
+
+RUN git config --system --add safe.directory "*"
+
+RUN install -d -o nonroot -g nonroot /app
+WORKDIR /app

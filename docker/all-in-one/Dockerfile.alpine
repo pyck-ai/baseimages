@@ -1,10 +1,7 @@
 # syntax=docker/dockerfile:1
 
-FROM alpine
-
-ARG TARGETPLATFORM TARGETARCH
-ARG PYTHON_VERSION
-USER 0
+FROM base
+USER root
 
 #===============================================================================
 # GOLANG
@@ -21,7 +18,7 @@ ENV GOPROXY=https://go.pyck.cloud,direct
 # you need cgo.
 ENV CGO_ENABLED=0
 
-RUN mkdir -p /go/bin
+RUN install -d -o nonroot -g nonroot /go /go/bin /go/pkg/mod /var/cache/go
 COPY --from=golang /usr/local/go /usr/local/go
 COPY --from=golang\
      /usr/local/bin/dlv\
@@ -37,8 +34,9 @@ COPY --from=golang\
 ENV BUN_INSTALL=/bun
 ENV PATH="/bun/bin:${PATH}"
 
-RUN mkdir -p /bun/bin
+RUN install -d -o nonroot -g nonroot /bun /bun/bin /bun/install /bun/install/global
 COPY --from=typescript /usr/local/bin/bun /usr/local/bin/
+RUN ln -s /usr/local/bin/bun /usr/local/bin/node
 
 #===============================================================================
 # AGENT (Claude Code, opencode, pi)
@@ -51,15 +49,22 @@ COPY --from=agent /usr/local/bin/opencode /usr/local/bin/
 COPY --from=agent /usr/local/lib/claude_fix.so /usr/local/lib/
 ENV LD_PRELOAD=/usr/local/lib/claude_fix.so
 
-# pi is a Bun global install; copy it and add the node->bun symlink it needs
-# (pi's binary is a `#!/usr/bin/env node` script).
-COPY --from=agent /bun/bin /bun/bin
-COPY --from=agent /bun/install/global /bun/install/global
-RUN ln -s /usr/local/bin/bun /usr/local/bin/node
+# we cant copy pi from the agent image because it would conflict with the bun installation of the typescript image above...
+# Installed as nonroot so the global install stays writable at runtime; the
+# symlink into /usr/local/bin needs root again.
+ARG PI_VERSION
+USER nonroot
+RUN bun add -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" &&\
+    pi --version | grep -qF "${PI_VERSION}"
+
+USER root
+RUN ln -s /bun/bin/pi /usr/local/bin/
 
 #===============================================================================
 # PYTHON (uv + Ruff)
 #===============================================================================
+
+ARG PYTHON_VERSION
 
 # uv installs a musl python-build-standalone CPython, so this works on Alpine.
 # uv/uvx/ruff are copied as binaries; the python/pip/pydoc entries are RECREATED
@@ -70,6 +75,7 @@ ENV UV_PYTHON_INSTALL_DIR=/usr/local/python
 ENV UV_PYTHON_PREFERENCE=only-managed
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+RUN install -d -o nonroot -g nonroot /usr/local/python
 COPY --from=python /usr/local/python /usr/local/python
 COPY --from=python /usr/local/bin/uv /usr/local/bin/ruff /usr/local/bin/
 RUN ln -sf uv /usr/local/bin/uvx &&\
