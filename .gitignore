@@ -1,7 +1,34 @@
-.DS_Store
-Thumbs.db
-.claude/
-.idea/
-.vscode/
-*.swp
-*.swo
+# Whitelist: everything is ignored unless re-included below.
+
+*
+
+# Descend into directories, but keep dot-directories (.serena/, .idea/, .vscode/,
+# .claude/, ...) out — except .github/, which is tracked.
+!*/
+.*/
+
+!.github/
+
+!.gitignore
+!.gitattributes
+!.dockerignore
+!.editorconfig
+
+*.env
+*.env.*
+!.env.example
+
+!Dockerfile
+!Dockerfile.*
+
+!*.conf
+!*.dart
+!*.hcl
+!*.html
+!*.json5
+!*.md
+!*.sh
+!*.yaml
+!*.yml
+
+!docker/static/tmp.tar
