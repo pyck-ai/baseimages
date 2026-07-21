@@ -40,5 +40,16 @@ tasks:
         --var REGISTRY={{ .REGISTRY | q}}
         {{._BAKE_BUILDARGS}}
         {{if .CLI_VERBOSE}}--debug{{end}}
+        {{.BAKE_EXTRA}}
         {{.CLI_ARGS}}
 
+  verify:
+    desc: "Build and verify images. Args: same target syntax as build"
+    cmds:
+      # --load is what makes the images inspectable; it implies a single platform,
+      # which the build task already forces outside CI.
+      - task: build
+        vars:
+          BAKE_EXTRA: '--load'
+          CLI_ARGS: '{{.CLI_ARGS}}'
+      - REGISTRY={{.REGISTRY | q}} ./verify.sh {{.CLI_ARGS}}

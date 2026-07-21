@@ -31,11 +31,41 @@ README files in this repository document what each Docker image contains. Keep t
 - New environment variable added or an existing one changed: update the ENV table.
 - Default user or WORKDIR changed: update the "Default user" section.
 
-**When an image is added**, create a README in the new image's directory following the style of the existing ones, then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is added**, create a README and a `verify.sh` in the new image's directory following the style of the existing ones, then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
-**When an image is removed**, delete its README and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is removed**, delete its README and `verify.sh`, and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
 **When an image is renamed** (tag or directory), update all references in the root [`README.md`](README.md) and any cross-links between image READMEs.
+
+## Image verification
+
+Every image directory has a `verify.sh` that checks the **assembled** image: default
+user, `WORKDIR`, `ENV`, tool versions against `buildargs.conf`, directory writability,
+and a smoke test of what the image is for. It is run by `task verify` and shares helpers
+from [`docker/verify-lib.sh`](docker/verify-lib.sh).
+
+This is not the same as `download.sh --verify`, which checks a tool inside the stage
+that installed it. A missing binary, a root-owned cache directory, or a typo'd `USER`
+all build green and only surface once the image is run — that class of bug is what
+`verify.sh` exists to catch.
+
+Each `verify.sh` must assert its role's default user (`check_user … root 0` for `base` +
+the developer-tooling set + `all-in-one`; the image's nonroot uid for `nginx` and
+`static`) and, for the root-default images, must also assert the tool dirs and toolchain
+smoke test still work under `--user 65532` (the `check_writable_as 65532` /
+`check_shell_cmd_as 65532` helpers). Every taggable image **must** ship a `verify.sh` —
+the driver fails, not skips, if one is missing.
+
+**When a Dockerfile changes**, update that image's `verify.sh` alongside its README:
+
+- Tool added, removed, or renamed: update the `check_cmd` / `check_version` calls.
+- New environment variable, or a changed value: update the `check_env` calls.
+- Default user or WORKDIR changed: update `check_user` / `check_workdir`.
+- A new directory the image must write to at runtime: add it to `check_writable`.
+
+Ground every check in the Dockerfile. Do not assert something the image does not
+actually promise, and prefer a check that exercises real behaviour (`go build`) over one
+that only asserts a variable is set.
 
 ### What belongs in the READMEs
 

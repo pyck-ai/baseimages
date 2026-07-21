@@ -109,6 +109,28 @@ task build -- all-in-one        # all-in-one image (both variants)
 task build ARCH=amd64 -- base-alpine
 ```
 
+## Verifying
+
+`task verify` builds the images with `--load` and then runs each image's own
+`docker/<image>/verify.sh` against the result. It takes the same target syntax as
+`task build`:
+
+```sh
+task verify                     # every image
+task verify -- golang           # both golang variants
+task verify -- golang-alpine    # one target
+```
+
+This checks the *assembled* image rather than a build stage — default user, `WORKDIR`,
+`ENV`, tool versions against [`buildargs.conf`](buildargs.conf), directory writability,
+and a smoke test per image (`go build`, `bun add -g`, an RFW round-trip, an HTTP request
+to nginx). It is distinct from `download.sh --verify`, which checks a tool inside the
+stage that installed it; bugs that only appear once all the `COPY`s are stitched
+together are invisible to the build and are what this catches.
+
+Each image owns its checks; [`docker/verify-lib.sh`](docker/verify-lib.sh) provides the
+shared helpers. Verification needs `--load`, so it runs against a single architecture.
+
 ## Dependency graph
 
 The arrows show current build dependencies. Building on `base` is optional by design — a single-purpose image may start from any suitable upstream instead (e.g. `golang` also pulls the official `golang` toolchain image, `nginx` builds on `nginxinc/nginx-unprivileged`).
