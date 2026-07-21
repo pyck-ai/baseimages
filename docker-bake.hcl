@@ -73,8 +73,7 @@ group "default" {
 group "ci-stage-1" {
   targets = [
     "base",
-    "nginx",
-    "static",
+    "nginx", # builds on an upstream image, not on base
   ]
 }
 
@@ -85,6 +84,7 @@ group "ci-stage-2" {
     "typescript", # needs base
     "python",     # needs base
     "rover",      # needs base
+    "static",     # needs base
   ]
 }
 
