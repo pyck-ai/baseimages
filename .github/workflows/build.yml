@@ -229,6 +229,66 @@ jobs:
         env:
           REGISTRY: ${{ env.REGISTRY }}
 
+  # Build every image single-arch with --load and run its verify.sh against the
+  # assembled image — the post-build gate that enforces the role-based USER
+  # contract (and every other assembled-image check) before merge. This is a
+  # distinct build from the push stages: verify.sh inspects images loaded into the
+  # local daemon, which requires --load and therefore a single platform. `CI=`
+  # forces the Taskfile's single-platform --load path — GitHub sets CI=true, which
+  # would otherwise select the multi-arch build that --load cannot load.
+  verify:
+    # Run after the push stages rather than alongside them: this job cold-builds
+    # every image single-arch with --load on one runner, so serializing avoids
+    # doubling peak build load on the self-hosted pool. verify uses none of
+    # discover's outputs, so depending on the stages (which each need discover)
+    # is sufficient ordering.
+    needs: [stage-1, stage-2, stage-3]
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Nothing else in this pipeline needs `task`; the verify flow does, so
+      # install it explicitly rather than assuming the runner carries it.
+      - name: Install go-task
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Named to match the `--builder` the Taskfile passes, and given the same
+      # host-network driver options as the push stages. Using the action rather
+      # than `task setup` keeps host networking out of the Taskfile, which also
+      # has to work under rootless Docker locally.
+      - name: Set up buildx builder
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        with:
+          name: pyck-baseimages
+          driver-opts: network=host
+          buildkitd-flags: --allow-insecure-entitlement=network.host
+
+      # `CI=` (CLI var) forces the Taskfile's single-platform --load path; the
+      # step-level CI: "" documents the same intent at the workflow layer, since
+      # GitHub sets CI=true which would otherwise select an unloadable multi-arch build.
+      - name: Build (--load) and verify every image
+        run: task verify CI=
+        env:
+          CI: ""
+          REGISTRY: ${{ env.REGISTRY }}
+
   # Single aggregate gate for the branch-protection required status check. Matrix
   # jobs can't be required directly: their targets are discovered dynamically, and
   # a matrix job skipped via a failed `needs` reports a bare context that a required
@@ -237,13 +297,13 @@ jobs:
   # requiring just "gate" gates the whole pipeline without touching CI when images
   # are added or removed.
   gate:
-    needs: [discover, stage-1, stage-2, stage-3]
+    needs: [discover, stage-1, stage-2, stage-3, verify]
     if: always()
     runs-on: self-hosted
     steps:
       - name: Verify all stages succeeded
         run: |
-          results="${{ needs.discover.result }} ${{ needs.stage-1.result }} ${{ needs.stage-2.result }} ${{ needs.stage-3.result }}"
+          results="${{ needs.discover.result }} ${{ needs.stage-1.result }} ${{ needs.stage-2.result }} ${{ needs.stage-3.result }} ${{ needs.verify.result }}"
           for r in $results; do
             [ "$r" = "success" ] || { echo "A stage did not succeed: $results"; exit 1; }
           done
