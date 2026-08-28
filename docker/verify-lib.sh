@@ -10,7 +10,7 @@
 # Most checks run the image as its DEFAULT user, asserting the image's declared
 # default. Build-substrate images now default to root, so the `_as <uid>`
 # variants additionally assert that the image still works when dropped to
-# nonroot via `--user 65532` — otherwise a writability/smoke check under a
+# nonroot via `--user 1001` — otherwise a writability/smoke check under a
 # root default would be trivially true and lose all signal.
 #
 # Sourced by docker/<image>/verify.sh, which is invoked by the top-level verify.sh:

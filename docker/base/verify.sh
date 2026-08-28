@@ -12,7 +12,7 @@ check_workdir  "$IMG" /app
 
 # /app is the documented working directory, so it must be writable under the
 # nonroot uid, not just the root default.
-check_writable_as 65532 "$IMG" /app
+check_writable_as 1001 "$IMG" /app
 
 # Shell, VCS and the archive/search tooling every downstream image relies on.
 check_cmd "$IMG" bash git curl wget jq rg rsync rclone tar unzip zip xz zstd gpg make gcc file gawk patch ssh

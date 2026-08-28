@@ -71,7 +71,7 @@ The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md
 
 **Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
 
-Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, and `/go`, `/go/bin`, `/go/pkg/mod`, and `/var/cache/go` are all nonroot-owned, so `go build` and `go install` also work under `--user 65532`. `WORKDIR` is `/app`.
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 1001) still exists, and `/go`, `/go/bin`, `/go/pkg/mod`, and `/var/cache/go` are all nonroot-owned, so `go build` and `go install` also work under `--user 1001`. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -87,7 +87,7 @@ RUN go build -o /app/mybinary ./cmd/server
 Run unprivileged instead of the root default:
 
 ```sh
-docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/golang:latest go version
+docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/golang:latest go version
 ```
 
 ### Mounting caches in CI

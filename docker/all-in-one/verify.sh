@@ -58,17 +58,17 @@ fi
 
 # These directories are chowned to nonroot explicitly in the Dockerfile because
 # each toolchain's own build stage installs as root.
-check_writable_as 65532 "$IMG" /go /go/bin /go/pkg/mod /var/cache/go\
+check_writable_as 1001 "$IMG" /go /go/bin /go/pkg/mod /var/cache/go\
     /bun /bun/bin /bun/install/global\
     /usr/local/python
 
-check_shell_cmd_as 65532 "$IMG" "go build works end-to-end" \
+check_shell_cmd_as 1001 "$IMG" "go build works end-to-end" \
     'd=$(mktemp -d) && cd "$d" && go mod init smoke && echo "package main
 func main() {}" > main.go && go build .'
 
-check_shell_cmd_as 65532 "$IMG" "bun add -g installs a binary that resolves on PATH" \
+check_shell_cmd_as 1001 "$IMG" "bun add -g installs a binary that resolves on PATH" \
     'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1'
 
-check_shell_cmd_as 65532 "$IMG" "python runs" 'python -c "print(1)"'
+check_shell_cmd_as 1001 "$IMG" "python runs" 'python -c "print(1)"'
 
 verify_summary

@@ -77,7 +77,7 @@ The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md
 
 **Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
 
-Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, and `/usr/local/python` is nonroot-owned, so `uv python install` of an additional version also works under `--user 65532`. `WORKDIR` is `/app`.
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 1001) still exists, and `/usr/local/python` is nonroot-owned, so `uv python install` of an additional version also works under `--user 1001`. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -93,7 +93,7 @@ docker run --rm \
 Run unprivileged instead of the root default:
 
 ```sh
-docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/python:latest python --version
+docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/python:latest python --version
 ```
 
 ### Install dependencies with uv

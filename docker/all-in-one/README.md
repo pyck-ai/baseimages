@@ -96,7 +96,7 @@ See the [base README](../base/README.md) for the inherited base toolset and envi
 
 **Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
 
-Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, and `/go`, `/bun`, and `/usr/local/python` are all nonroot-owned, so `go build`, `go install`, `bun add -g`, and `uv` also work under `--user 65532`. `WORKDIR` is `/app`.
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 1001) still exists, and `/go`, `/bun`, and `/usr/local/python` are all nonroot-owned, so `go build`, `go install`, `bun add -g`, and `uv` also work under `--user 1001`. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -112,7 +112,7 @@ docker run --rm -it \
 Run unprivileged instead of the root default:
 
 ```sh
-docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/all-in-one:latest go version
+docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/all-in-one:latest go version
 ```
 
 ```sh

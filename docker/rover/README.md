@@ -31,7 +31,7 @@ Supports `linux/amd64` and `linux/arm64`. Installs no packages and sets no envir
 
 **Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
 
-Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532) still exists, reachable via `--user 65532`. `WORKDIR` is `/app`.
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 1001) still exists, reachable via `--user 1001`. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -44,7 +44,7 @@ docker run --rm -e APOLLO_KEY -v "$PWD:/app" \
 Run unprivileged instead of the root default:
 
 ```sh
-docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/rover:latest rover --version
+docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/rover:latest rover --version
 ```
 
 ## Build

@@ -13,7 +13,7 @@ Whenever a developer-tooling image is added, removed, or renamed, adjust `all-in
 
 ## Default user
 
-Default `USER` follows the image's role: build-substrate or build-toolchain images (`base` + the developer-tooling set + `all-in-one`) default to **root** and keep a `nonroot` account (uid/gid 65532) reachable via `--user 65532`; run-this-artifact (runtime/deploy) images (`nginx`, `static`) default to **nonroot**. New images must classify accordingly — see the root [`README.md`](README.md) "Conventions" section for the rationale (GitHub Actions job-container compatibility).
+Default `USER` follows the image's role: build-substrate or build-toolchain images (`base` + the developer-tooling set + `all-in-one`) default to **root** and keep a `nonroot` account (uid/gid 1001) reachable via `--user 1001`; run-this-artifact (runtime/deploy) images (`nginx`, `static`) default to **nonroot**. New images must classify accordingly — see the root [`README.md`](README.md) "Conventions" section for the rationale (GitHub Actions job-container compatibility).
 
 ## README maintenance
 
@@ -52,8 +52,8 @@ all build green and only surface once the image is run — that class of bug is 
 Each `verify.sh` must assert its role's default user (`check_user … root 0` for `base` +
 the developer-tooling set + `all-in-one`; the image's nonroot uid for `nginx` and
 `static`) and, for the root-default images, must also assert the tool dirs and toolchain
-smoke test still work under `--user 65532` (the `check_writable_as 65532` /
-`check_shell_cmd_as 65532` helpers). Every taggable image **must** ship a `verify.sh` —
+smoke test still work under `--user 1001` (the `check_writable_as 1001` /
+`check_shell_cmd_as 1001` helpers). Every taggable image **must** ship a `verify.sh` —
 the driver fails, not skips, if one is missing.
 
 **When a Dockerfile changes**, update that image's `verify.sh` alongside its README:

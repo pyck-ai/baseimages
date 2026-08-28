@@ -87,7 +87,7 @@ Both variants provide the same set of tools and conventions so downstream images
 
 **Build image, not a hardened runtime base** — if you `FROM` this for a deployment image, set `USER` in your final stage (same as the official `golang`/`python` images).
 
-Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 65532, matching the Google distroless convention) still exists, and `/app` is nonroot-owned, so `--user 65532` drops privileges cleanly. `WORKDIR` is `/app`.
+Runs as **root (uid 0) by default**. A `nonroot` account (uid/gid 1001, matching the uid our GitHub Actions runners execute as, so bind-mounted workspaces stay writable) still exists, and `/app` is nonroot-owned, so `--user 1001` drops privileges cleanly. `WORKDIR` is `/app`.
 
 ## Usage
 
@@ -104,7 +104,7 @@ RUN ...
 Run unprivileged instead of the root default:
 
 ```sh
-docker run --rm --user 65532 ghcr.io/pyck-ai/baseimages/base:alpine id
+docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/base:alpine id
 ```
 
 ## Build

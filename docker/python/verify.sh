@@ -23,12 +23,12 @@ check_version "$IMG" "uv --version"      "${UV_VERSION}"
 check_version "$IMG" "ruff --version"    "${RUFF_VERSION}"
 check_version "$IMG" "python --version"  "${PYTHON_VERSION}"
 
-check_writable_as 65532 "$IMG" /usr/local/python
+check_writable_as 1001 "$IMG" /usr/local/python
 
 check_shell_cmd "$IMG" "python runs" 'python -c "print(1)"'
 
 # Proves uv works unprivileged under UV_PYTHON_PREFERENCE=only-managed.
-check_shell_cmd_as 65532 "$IMG" "uv venv works unprivileged" \
+check_shell_cmd_as 1001 "$IMG" "uv venv works unprivileged" \
     'd=$(mktemp -d) && cd "$d" && uv venv'
 
 verify_summary

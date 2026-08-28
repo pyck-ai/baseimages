@@ -15,7 +15,7 @@ IMG=$1
 # The Dockerfile deliberately uses the numeric uid form for USER: a scratch
 # image has no guarantee /etc/passwd is consulted, so the name form could
 # silently fail to resolve.
-check_user_inspect "$IMG" 65532
+check_user_inspect "$IMG" 1001
 check_workdir      "$IMG" /home/nonroot
 
 check_env "$IMG" SSL_CERT_FILE /etc/ssl/certs/ca-certificates.crt

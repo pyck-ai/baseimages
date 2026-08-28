@@ -24,7 +24,7 @@ A minimal `scratch`-based image for running statically-compiled binaries in prod
 | `/usr/share/zoneinfo` | alpine base | Timezone database |
 | `/etc/localtime` | alpine base | Default timezone (UTC) |
 | `/root` | alpine base | Root home directory (owned root:root) |
-| `/home/nonroot` | alpine base | nonroot home directory (owned 65532:65532) |
+| `/home/nonroot` | alpine base | nonroot home directory (owned 1001:1001) |
 
 ### /tmp handling
 
@@ -39,7 +39,7 @@ The sticky bit on `/tmp` cannot be set via a `COPY` or `RUN` in a scratch image,
 
 ### Default user
 
-Runs as `nonroot` (UID/GID 65532) by default, declared numerically as `USER 65532` — the distroless convention for images with no shell. `WORKDIR` is `/home/nonroot`.
+Runs as `nonroot` (UID/GID 1001) by default, declared numerically as `USER 1001` — a scratch image has no `/etc/passwd` for a name to resolve against. `WORKDIR` is `/home/nonroot`.
 
 `--user 0` can override the runtime uid to root, but since this is a scratch image with no shell or package manager, there is nothing to install — it only changes which uid the entrypoint binary runs as.
 

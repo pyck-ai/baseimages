@@ -62,8 +62,12 @@ RUN update-ca-certificates
 
 COPY download.sh /usr/local/sbin/download.sh
 
-RUN addgroup -g 65532 nonroot &&\
-    adduser -D -u 65532 -G nonroot -s /bin/sh nonroot
+# uid/gid 1001 is load-bearing, not arbitrary: it matches the uid our GitHub
+# Actions runners execute as (pyck-ai/deployment Dockerfile.runner), so a
+# bind-mounted job workspace stays writable and git does not reject it as
+# dubiously owned when an image runs as nonroot.
+RUN addgroup -g 1001 nonroot &&\
+    adduser -D -u 1001 -G nonroot -s /bin/sh nonroot
 
 #===============================================================================
 # DOWNLOADS

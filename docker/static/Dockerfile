@@ -30,8 +30,10 @@ COPY --from=rootfs /etc/localtime /etc/localtime
 
 # Home directories
 COPY --from=rootfs /root /root
-COPY --chown=65532:65532 --from=rootfs /home/nonroot /home/nonroot
+COPY --chown=1001:1001 --from=rootfs /home/nonroot /home/nonroot
 
-USER 65532
+# Numeric because a scratch image has no /etc/passwd to resolve a name against.
+# Must track the nonroot uid/gid created in base.
+USER 1001
 WORKDIR /home/nonroot
 

@@ -7,7 +7,7 @@
 IMG=$1
 
 # Built on upstream nginxinc/nginx-unprivileged, which runs as `nginx` (uid
-# 101) rather than the nonroot (uid 65532) convention used elsewhere in this
+# 101) rather than the nonroot (uid 1001) convention used elsewhere in this
 # repo — that is the whole point of the unprivileged image, not a bug.
 check_user    "$IMG" nginx 101
 check_workdir "$IMG" /app

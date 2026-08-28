@@ -38,9 +38,9 @@ else
     check_shell_cmd "$IMG" "claude_fix.so absent on debian" '[ ! -e /usr/local/lib/claude_fix.so ]'
 fi
 
-check_writable_as 65532 "$IMG" /bun /bun/bin /bun/install/global
+check_writable_as 1001 "$IMG" /bun /bun/bin /bun/install/global
 
-check_shell_cmd_as 65532 "$IMG" "bun add -g installs a binary that resolves on PATH" \
+check_shell_cmd_as 1001 "$IMG" "bun add -g installs a binary that resolves on PATH" \
     'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1'
 
 verify_summary
