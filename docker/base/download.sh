@@ -559,7 +559,7 @@ extract_archive() {
 #
 # Extract only the paths in INSTALL_PATHS from the archive into extract_dir.
 # Literal paths (no glob chars) rely on tar's built-in directory recursion so
-# a bare name like "flutter" extracts the whole subtree.
+# a bare name like "opencode" extracts the whole subtree.
 # Glob patterns (containing *, ?, or [) are passed with --wildcards.
 #
 extract_selective() {

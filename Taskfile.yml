@@ -42,37 +42,3 @@ tasks:
         {{if .CLI_VERBOSE}}--debug{{end}}
         {{.CLI_ARGS}}
 
-  test:flutter:generate-binary:
-    desc: Generate binary test file from text example
-    deps:
-      - task: build
-        vars:
-          TARGET: flutter
-    cmds:
-      - |
-        docker run --rm \
-          -v {{.PWD}}/flutter:/app:z \
-          -w /opt/rfw-validator \
-          {{.REGISTRY}}/flutter:latest \
-          dart run generate_binary.dart /app/example.dart /app/example.rfw
-
-  test:flutter:
-    desc: Test Flutter image RFW validator with text and binary formats
-    deps:
-      - task: build
-        vars:
-          TARGET: flutter
-      - test:flutter:generate-binary
-    cmds:
-      - |
-        echo "Testing text format (.rfwtxt)..."
-        docker run --rm \
-          -v {{.PWD}}/flutter:/app:z \
-          {{.REGISTRY}}/flutter:latest \
-          validate-rfw example.dart
-      - |
-        echo "Testing binary format (.rfw)..."
-        docker run --rm \
-          -v {{.PWD}}/flutter:/app:z \
-          {{.REGISTRY}}/flutter:latest \
-          validate-rfw example.rfw

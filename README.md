@@ -33,7 +33,7 @@ Single-purpose tooling images, all bundled into `all-in-one`.
 
 | Image | Description |
 |-------|-------------|
-| [`all-in-one`](docker/all-in-one/README.md) | Every developer-tooling image combined for local development; excludes the runtime & deployment images (nginx, flutter, static) |
+| [`all-in-one`](docker/all-in-one/README.md) | Every developer-tooling image combined for local development; excludes the runtime & deployment images (nginx, static) |
 
 ### Runtime & deployment
 
@@ -41,7 +41,6 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 
 | Image | Description |
 |-------|-------------|
-| [`flutter`](docker/flutter/README.md) | Flutter + Dart SDK/runtime with RFW validator |
 | [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
 | [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
 
@@ -62,6 +61,7 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 | `debian:latest` | `all-in-one:debian` |
 | `rover:debian` | `rover:latest` |
 | `rover:<version>-debian` | `rover:<version>` |
+| `flutter` | [`ghcr.io/pyck-ai/flutter-rfw`](https://github.com/pyck-ai/flutter-rfw) |
 
 ## Versioning
 
@@ -112,13 +112,11 @@ graph LR
   base-alpine --> golang-alpine["golang:alpine"]
   base-alpine --> agent-alpine["agent:alpine"]
   base-alpine --> typescript-alpine["typescript:alpine"]
-  base-alpine --> flutter-alpine["flutter:alpine"]
   base-alpine --> python-alpine["python:alpine"]
 
   base-debian --> golang-debian["golang:debian"]
   base-debian --> agent-debian["agent:debian"]
   base-debian --> typescript-debian["typescript:debian"]
-  base-debian --> flutter-debian["flutter:debian"]
   base-debian --> python-debian["python:debian"]
   base-debian --> rover
 

@@ -7,7 +7,7 @@ Images fall into a few kinds:
 - **`base`** — a hardened Alpine + Debian foundation with common tooling. Other images **may** build on it, but single-purpose images are not required to; `base` is an option, not a mandatory parent.
 - **Developer tooling** — single-purpose language toolchains, package managers, and coding-agent CLIs (`golang`, `typescript`, `python`, `rover`, `agent`). These are bundled together into the [`all-in-one`](docker/all-in-one/README.md) image.
 - **`all-in-one`** — the complete developer-tooling set in one image, intended for local development, **not** for CI (size and attack surface).
-- **Runtime / deployment images** — `nginx` (web server), `flutter` (application SDK/runtime), and `static` (scratch base for static binaries). These run or serve an application rather than build one; they are consumed standalone and are **intentionally excluded from `all-in-one`**. Do not wire them into it.
+- **Runtime / deployment images** — `nginx` (web server) and `static` (scratch base for static binaries). These run or serve an application rather than build one; they are consumed standalone and are **intentionally excluded from `all-in-one`**. Do not wire them into it.
 
 Whenever a developer-tooling image is added, removed, or renamed, adjust `all-in-one` to match — it must bundle every developer-tooling image, and only the runtime / deployment images above are exempt.
 

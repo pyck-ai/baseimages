@@ -4,12 +4,12 @@
 # Task automatically sources buildargs.conf before calling bake.
 #
 # Usage:
-#   task build             # Build all images
-#   task build -- flutter  # Build flutter image
+#   task build            # Build all images
+#   task build -- golang  # Build golang image
 #
 # Or directly with docker:
 #   set -a && source buildargs.conf && set +a && docker buildx bake
-#   set -a && source buildargs.conf && set +a && docker buildx bake flutter
+#   set -a && source buildargs.conf && set +a && docker buildx bake golang
 
 variable "REGISTRY" {}
 variable "GOLANG_VERSION" {}
@@ -19,7 +19,6 @@ variable "NGINX_VERSION" {}
 variable "CLAUDE_VERSION" {}
 variable "OPENCODE_VERSION" {}
 variable "PI_VERSION" {}
-variable "FLUTTER_VERSION" {}
 variable "BUN_VERSION" {}
 variable "PYTHON_VERSION" {}
 variable "ROVER_VERSION" {}
@@ -86,7 +85,6 @@ group "ci-stage-2" {
     "typescript",
     "python",
     "rover",
-    "flutter",
   ]
 }
 
@@ -271,48 +269,6 @@ target "agent-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian,mode=max"]
-}
-
-# ==============================================================================
-# FLUTTER
-# ==============================================================================
-
-group "flutter" {
-  targets = [
-    "flutter-alpine",
-    "flutter-debian",
-  ]
-}
-
-target "flutter-alpine" {
-  inherits = ["_common"]
-  context = "./docker/flutter"
-  dockerfile = "Dockerfile.alpine"
-  contexts = {
-    "alpine" = "target:base-alpine"
-  }
-  tags = concat(
-    ["${REGISTRY}/flutter:latest", "${REGISTRY}/flutter:alpine"],
-    vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", ""),
-    vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", "-alpine"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:flutter-alpine"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:flutter-alpine,mode=max"]
-}
-
-target "flutter-debian" {
-  inherits = ["_common"]
-  context = "./docker/flutter"
-  dockerfile = "Dockerfile.debian"
-  contexts = {
-    "debian" = "target:base-debian"
-  }
-  tags = concat(
-    ["${REGISTRY}/flutter:debian"],
-    vtags(REGISTRY, "flutter", FLUTTER_VERSION, "", "-debian"),
-  )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:flutter-debian"]
-  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:flutter-debian,mode=max"]
 }
 
 # ==============================================================================
