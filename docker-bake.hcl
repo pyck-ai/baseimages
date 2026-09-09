@@ -66,7 +66,7 @@ group "default" {
   ]
 }
 
-# CI build stages — used by build.yml to enforce ordering.
+# CI build stages — used by build-images.yml to enforce ordering.
 # ci-stage-1 (base) → ci-stage-2 (direct base dependents) → ci-stage-3 (all-in-one).
 # Each stage fans out in parallel across targets.
 

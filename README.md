@@ -123,13 +123,21 @@ task verify -- golang-alpine    # one target
 
 This checks the *assembled* image rather than a build stage — default user, `WORKDIR`,
 `ENV`, tool versions against [`buildargs.conf`](buildargs.conf), directory writability,
-and a smoke test per image (`go build`, `bun add -g`, an RFW round-trip, an HTTP request
-to nginx). It is distinct from `download.sh --verify`, which checks a tool inside the
-stage that installed it; bugs that only appear once all the `COPY`s are stitched
-together are invisible to the build and are what this catches.
+and a smoke test per image (`go build`, `bun add -g`, an HTTP request to nginx). It is
+distinct from `download.sh --verify`, which checks a tool inside the stage that installed
+it; bugs that only appear once all the `COPY`s are stitched together are invisible to the
+build and are what this catches.
 
 Each image owns its checks; [`docker/verify-lib.sh`](docker/verify-lib.sh) provides the
-shared helpers. Verification needs `--load`, so it runs against a single architecture.
+shared helpers. Verification runs against a single architecture — locally because
+`--load` requires it, and in CI because `docker run` resolves a multi-arch index to the
+host platform.
+
+In CI the same per-image scripts run, but against the exact images the build pushed
+rather than a fresh local build. The build stages push every target **by digest with no
+tags**, and `verify.sh --digests <file>` resolves each target to `<repo>@<digest>` and
+pulls it. Tags are applied afterwards by a separate `publish` job, so verification is a
+real gate: if a check fails, the floating and version tags never move.
 
 ## Dependency graph
 

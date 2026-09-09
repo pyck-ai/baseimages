@@ -11,6 +11,13 @@
 #   ./verify.sh golang-alpine   # a single target
 #
 # Images must already be loaded into the local docker daemon.
+#
+# Pass --digests <file> to verify exact pushed digests instead of local tags:
+# the file must be a JSON object mapping target name to digest (e.g.
+# {"golang-alpine":"sha256:..."}), as produced by CI's per-target digest
+# artifacts. In this mode each target's image is pulled by
+# <repo>@<digest> instead of being looked up by tag in the local daemon.
+#   ./verify.sh --digests digests.json
 
 set -uo pipefail
 
@@ -20,8 +27,23 @@ REGISTRY="${REGISTRY:-ghcr.io/pyck-ai/baseimages}"
 
 command -v jq >/dev/null 2>&1 || { echo "[ERR] jq is required" >&2; exit 1; }
 
-targets_json=$(REGISTRY="$REGISTRY" docker buildx bake --print "$@" 2>/dev/null) || {
-    echo "[ERR] could not resolve bake targets: $*" >&2
+DIGESTS=""
+args=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --digests)
+            DIGESTS="$2"
+            shift 2
+            ;;
+        *)
+            args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+targets_json=$(REGISTRY="$REGISTRY" docker buildx bake --print "${args[@]}" 2>/dev/null) || {
+    echo "[ERR] could not resolve bake targets: ${args[*]}" >&2
     exit 1
 }
 
@@ -33,7 +55,7 @@ mapfile -t entries < <(
                | "\(.key)\t\(.value.context // "")\t\(.value.tags | join(","))"'
 )
 
-[ "${#entries[@]}" -gt 0 ] || { echo "[ERR] no taggable targets matched: $*" >&2; exit 1; }
+[ "${#entries[@]}" -gt 0 ] || { echo "[ERR] no taggable targets matched: ${args[*]}" >&2; exit 1; }
 
 failed=0 ran=0
 
@@ -56,25 +78,42 @@ for entry in "${entries[@]}"; do
         continue
     fi
 
-    # Prefer the tag matching this variant so alpine/debian are verified distinctly;
-    # fall back to :latest for single-variant images whose tag carries no variant
-    # (rover-debian publishes rover:latest, not rover:debian).
-    ref=""
     IFS=',' read -ra tag_list <<<"$tags"
-    for t in "${tag_list[@]}"; do
-        [ -n "$variant" ] && [ "${t##*:}" = "$variant" ] && { ref=$t; break; }
-        [ -z "$variant" ] && [ "${t##*:}" = "latest" ] && { ref=$t; break; }
-    done
-    [ -z "$ref" ] && for t in "${tag_list[@]}"; do
-        [ "${t##*:}" = "latest" ] && { ref=$t; break; }
-    done
-    [ -z "$ref" ] && ref=${tag_list[0]}
 
-    if ! docker image inspect "$ref" >/dev/null 2>&1; then
-        echo "[ERR] $target — image not loaded: $ref" >&2
-        echo "      build it first, e.g. task verify -- $target" >&2
-        failed=$((failed + 1))
-        continue
+    if [ -n "$DIGESTS" ]; then
+        # Verify the exact digest CI pushed, rather than a local tag lookup.
+        digest=$(jq -r --arg t "$target" '.[$t] // empty' "$DIGESTS")
+        if [ -z "$digest" ]; then
+            echo "[ERR] $target — no digest recorded" >&2
+            failed=$((failed + 1)); continue
+        fi
+        repo=$(sed 's/:[^/]*$//' <<<"${tag_list[0]}")
+        ref="${repo}@${digest}"
+        if ! docker pull -q "$ref" >/dev/null 2>&1; then
+            echo "[ERR] $target — pull failed: $ref" >&2
+            failed=$((failed + 1)); continue
+        fi
+    else
+        # Prefer the tag matching this variant so alpine/debian are verified
+        # distinctly; fall back to :latest for single-variant images whose tag
+        # carries no variant (rover-debian publishes rover:latest, not
+        # rover:debian).
+        ref=""
+        for t in "${tag_list[@]}"; do
+            [ -n "$variant" ] && [ "${t##*:}" = "$variant" ] && { ref=$t; break; }
+            [ -z "$variant" ] && [ "${t##*:}" = "latest" ] && { ref=$t; break; }
+        done
+        [ -z "$ref" ] && for t in "${tag_list[@]}"; do
+            [ "${t##*:}" = "latest" ] && { ref=$t; break; }
+        done
+        [ -z "$ref" ] && ref=${tag_list[0]}
+
+        if ! docker image inspect "$ref" >/dev/null 2>&1; then
+            echo "[ERR] $target — image not loaded: $ref" >&2
+            echo "      build it first, e.g. task verify -- $target" >&2
+            failed=$((failed + 1))
+            continue
+        fi
     fi
 
     echo "▸ $target ($ref)"

@@ -44,6 +44,14 @@ user, `WORKDIR`, `ENV`, tool versions against `buildargs.conf`, directory writab
 and a smoke test of what the image is for. It is run by `task verify` and shares helpers
 from [`docker/verify-lib.sh`](docker/verify-lib.sh).
 
+Locally `task verify` builds with `--load` and checks the images in the local daemon. In
+CI the same per-image scripts run unchanged, but against the exact digests the build
+pushed: the stages push every target **by digest with no tags**, and the `verify` job
+runs `./verify.sh --digests <file>`, which resolves each target to `<repo>@<digest>` and
+pulls it. A separate `publish` job applies the tags only after that passes, so a failed
+check means the tags never move. Write per-image checks against the image ref in `$1` and
+nothing else — that is what keeps both modes working from one script.
+
 This is not the same as `download.sh --verify`, which checks a tool inside the stage
 that installed it. A missing binary, a root-owned cache directory, or a typo'd `USER`
 all build green and only surface once the image is run — that class of bug is what
