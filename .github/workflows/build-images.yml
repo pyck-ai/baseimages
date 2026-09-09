@@ -118,6 +118,16 @@ jobs:
           set: ${{ needs.discover.outputs.bakeargs-set }}
         env:
           REGISTRY: ${{ env.REGISTRY }}
+          # Keep provenance out of the METADATA JSON only; the images themselves
+          # still get their provenance attestations. Buildx embeds the full SLSA
+          # predicate per target, which reaches 400KB+ for multi-platform builds.
+          # The next step receives that metadata through the environment, and Linux
+          # caps a single env var at MAX_ARG_STRLEN (PAGE_SIZE * 32 = 128KB) —
+          # independently of the 2MB ARG_MAX total — so execve fails with
+          # "Argument list too long" before bash even starts. A one-target
+          # component stayed under the cap; a seven-target one does not.
+          # See docker/bake-action#239 and #135.
+          BUILDX_METADATA_PROVENANCE: disabled
 
       - name: Export digests
         env:
