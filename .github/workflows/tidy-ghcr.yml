@@ -1,0 +1,143 @@
+name: tidy-ghcr
+run-name: Tidy GHCR
+
+# WARNING — this workflow is intentionally INERT: manual-dispatch only (no
+# schedule, see below) and DRY_RUN. It deletes nothing as it stands.
+#
+# `prune-untagged: true` below is known-unsafe: GHCR lists the child platform
+# manifests and buildx attestation manifests of a live multi-arch index as
+# separate untagged package versions, so pruning by "untagged" deletes pieces
+# of currently tagged images. This has already broken published tags in the
+# golang, rover, all-in-one, and nginx packages.
+#
+# Do not enable this workflow (and do not flip DRY_RUN to false) until the
+# untagged-prune step is replaced with a reachability-based implementation
+# that resolves index -> child references and treats attestation manifests
+# as owned by their subject, rather than one that only sees flat tags.
+#
+# Split out of the former cleanup.yml so the safe maintenance jobs (now in
+# tidy-repo.yml) are not blocked by this one.
+
+# There is deliberately NO `schedule:` here. A workflow file is ACTIVE from the
+# moment it merges — the old cleanup.yml was only dormant because someone had
+# disabled it by hand, and that state does not carry over to a new file. Leaving
+# a cron here would silently start running this daily and make the warning above
+# untrue. Dispatch-only is what actually keeps it inert.
+#
+# When the reachability-based redesign lands, restore:
+#   schedule:
+#     - cron: '0 3 * * *'
+# offset from tidy-repo.yml's 12:00 UTC run so the two don't contend for the
+# shared per-repository GitHub API rate-limit budget.
+on:
+  workflow_dispatch:
+
+# Never cancel a running prune job — partial cleanup is worse than no cleanup.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  DRY_RUN: true
+
+  # Keep at least RETAIN_VERSIONS tagged image versions; delete anything else older than RETAIN_DAYS.
+  IMAGES_RETAIN_DAYS: 90
+  IMAGES_RETAIN_VERSIONS: 10
+
+jobs:
+  # Parse docker-bake.hcl to produce the list of GHCR image names dynamically,
+  # so adding a new image doesn't require updating this workflow.
+  # Names come from the repository part of each target's tags (e.g. golang),
+  # not the bake target keys (e.g. golang-alpine) — the latter aren't packages.
+  discover:
+    name: Discover container images
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    outputs:
+      images: ${{ steps.list.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - id: list
+        run: |
+          set -a && source buildargs.conf && set +a
+          images=$(docker buildx bake --print 2>/dev/null \
+            | jq -c '[.target[].tags[]? | split(":")[0] | split("/") | last] | unique')
+          echo "images=$images" >> $GITHUB_OUTPUT
+
+  # Prune old GHCR images for each target.
+  # max-parallel: 2 prevents all images from hammering the Packages API simultaneously.
+  clean-ghcr:
+    name: Delete old container images (${{ matrix.image }})
+    needs: discover
+    runs-on: self-hosted
+    permissions:
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        image: ${{ fromJson(needs.discover.outputs.images) }}
+    steps:
+      # Remove untagged (dangling) image versions first.
+      #
+      # keep-younger-than is NOT optional here. The build workflow pushes every image
+      # by digest first and only applies tags later, from the publish job, once verify
+      # has passed. Between those two points the image is legitimately untagged, so an
+      # unfiltered prune would delete in-flight digests and break publish with
+      # "manifest unknown" — intermittently, and only for runs overlapping this job.
+      #
+      # WARNING — this step is NOT safe to re-enable as-is. Verified against the live
+      # registry: every child of a *currently tagged* index is listed by the GHCR API
+      # as an untagged version, so `prune-untagged` selects them. `golang:latest` is an
+      # index over two platform manifests plus two buildx provenance attestations, and
+      # all four appear as untagged prune candidates. Deleting one corrupts the tagged
+      # index that points at it.
+      #
+      # keep-younger-than only narrows that window, it does not close it: the build
+      # cron is weekdays-only (`0 9 * * 1-5`) while this job is daily, so by Saturday
+      # a Friday index's children are a day old and no longer spared, with no rebuild
+      # until Monday. Before re-enabling, either drop `prune-untagged` or move to a
+      # cleanup action that resolves index→child references (and treats attestation
+      # manifests as owned by their subject) rather than one that only sees flat tags.
+      #
+      # Verified against the action source at the pinned SHA (src/version-filter.js):
+      # `if (keepYoungerThan > age) return false;` is evaluated BEFORE the untagged
+      # check, so this spares young untagged versions rather than being ignored on
+      # the untagged path. Age is floor(days), so 1 spares anything under ~24h.
+      - name: Delete untagged versions
+        uses: vlaurin/action-ghcr-prune@0cf7d39f88546edd31965acba78cdcb0be14d641 # v0.6.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          organization: ${{ github.repository_owner }}
+          container: baseimages/${{ matrix.image }}
+          dry-run: ${{ env.DRY_RUN }}
+          prune-untagged: true
+          keep-younger-than: 1
+
+      # Delete tagged versions beyond IMAGES_RETAIN_VERSIONS, except 'latest' and semver tags
+      # that are younger than IMAGES_RETAIN_DAYS. prune-tags-regexes selects all tags as
+      # candidates; keep-* inputs then protect the ones we want to keep.
+      - name: Delete old tagged versions
+        uses: vlaurin/action-ghcr-prune@0cf7d39f88546edd31965acba78cdcb0be14d641 # v0.6.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          organization: ${{ github.repository_owner }}
+          container: baseimages/${{ matrix.image }}
+          dry-run: ${{ env.DRY_RUN }}
+          prune-tags-regexes: ^.+$
+          keep-last: ${{ env.IMAGES_RETAIN_VERSIONS }}
+          # These are the floating tags consumers pull by name and must never be pruned.
+          # Version-specific tags (1.27.1, alpine-3.23, claude-2.1.266, ...) are
+          # intentionally left to the keep-last/keep-younger-than retention knobs below.
+          # (Previously also listed ^v\d+.+?$, but no tag this repo publishes starts
+          # with "v" — every buildargs.conf version is bare and vtags()/all_in_one_tags()
+          # in docker-bake.hcl never prefix one — so that regex protected nothing.)
+          keep-tags-regexes: |
+              ^latest$
+              ^alpine$
+              ^debian$
+          keep-younger-than: ${{ env.IMAGES_RETAIN_DAYS }}
