@@ -134,10 +134,15 @@ shared helpers. Verification runs against a single architecture — locally beca
 host platform.
 
 In CI the same per-image scripts run, but against the exact images the build pushed
-rather than a fresh local build. The build stages push every target **by digest with no
+rather than a fresh local build. The build job pushes every target **by digest with no
 tags**, and `verify.sh --digests <file>` resolves each target to `<repo>@<digest>` and
 pulls it. Tags are applied afterwards by a separate `publish` job, so verification is a
 real gate: if a check fails, the floating and version tags never move.
+
+The build job is matrixed over the connected components of the bakefile's dependency
+graph, which CI derives from the `contexts` edges rather than from any hard-coded list.
+Each component builds in a single `bake` invocation, so a shared dependency such as
+`base` is built once and reused by everything that links to it.
 
 ## Dependency graph
 
