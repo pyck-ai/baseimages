@@ -222,6 +222,11 @@ jobs:
     if: always()
     runs-on: self-hosted
     steps:
+      # Needed because the check below lives in a script file. While it was an
+      # inline run block this job required no working copy at all.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Verify all stages succeeded
         env:
           RESULT_DISCOVER: ${{ needs.discover.result }}
