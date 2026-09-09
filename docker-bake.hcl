@@ -60,41 +60,24 @@ target "_common" {
 
 group "default" {
   targets = [
-    "ci-stage-1",
-    "ci-stage-2",
-    "ci-stage-3",
+    "base", "golang", "python", "typescript", "agent",
+    "rover", "all-in-one", "nginx", "static",
   ]
 }
 
-# CI build stages — used by build-images.yml to enforce ordering.
-# ci-stage-1 (base) → ci-stage-2 (direct base dependents) → ci-stage-3 (all-in-one).
-# Each stage fans out in parallel across targets.
-
-group "ci-stage-1" {
-  targets = [
-    "base",
-    "nginx", # builds on an upstream image, not on base
-  ]
-}
-
-group "ci-stage-2" {
-  targets = [
-    "golang",     # needs base
-    "agent",      # needs base
-    "typescript", # needs base
-    "python",     # needs base
-    "rover",      # needs base
-    "static",     # needs base
-  ]
-}
-
-group "ci-stage-3" {
-  targets = [
-    "all-in-one", # needs stage-2
-  ]
-}
-
-
+# There are deliberately no CI-specific groups (this file used to have three
+# hand-maintained stage groups sequencing base → dependents → all-in-one). That
+# ordering was redundant: it's already fully encoded in the `contexts = { x =
+# "target:y" }"
+# edges below, which is how bake knows a target needs another target built
+# first. Running both mechanisms meant every stage boundary cut across a
+# dependency edge, so build-images.yml re-resolved (and rebuilt) the subgraph
+# beneath each stage on every invocation — base-alpine alone was built seven
+# times per run. CI now derives its build matrix directly from these `contexts`
+# edges (see build-images.yml's `discover` job), grouping targets into the
+# connected components of the dependency graph and building each component in
+# one `bake` invocation, which bake dedupes internally. Adding an image means
+# declaring its target and edges here — nothing under .github/ needs to change.
 
 
 # ==============================================================================

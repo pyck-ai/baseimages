@@ -21,9 +21,10 @@ on:
 
 # Cancel superseded runs, but only for PRs. `github.ref` is `refs/heads/main` for
 # both `push` and `schedule`, so those two share a concurrency group; cancelling a
-# main run mid-flight is unsafe because the stage jobs push tags incrementally
-# (stage-1/stage-2 can have already moved e.g. base:latest and golang:latest before
-# stage-3 runs). Main runs therefore queue behind each other instead of cancelling.
+# main run mid-flight is unsafe because `publish` moves tags only after `build`
+# has pushed by digest and `verify` has confirmed them — an in-flight cancel
+# could leave some tags moved and others not. Main runs therefore queue behind
+# each other instead of cancelling.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -41,9 +42,7 @@ jobs:
   discover:
     runs-on: self-hosted
     outputs:
-      stage-1-targets: ${{ steps.targets.outputs.stage-1-targets }}
-      stage-2-targets: ${{ steps.targets.outputs.stage-2-targets }}
-      stage-3-targets: ${{ steps.targets.outputs.stage-3-targets }}
+      matrix: ${{ steps.targets.outputs.matrix }}
       bakeargs-set: ${{ steps.targets.outputs.bakeargs-set }}
     steps:
       - name: Checkout repository
@@ -53,24 +52,35 @@ jobs:
         id: targets
         run: |
           set -a && source buildargs.conf && set +a
-          bake_print() {
-            REGISTRY=${{ env.REGISTRY }} docker buildx bake --print "$1"
-          }
-          print1=$(bake_print ci-stage-1)
-          print2=$(bake_print ci-stage-2)
-          print3=$(bake_print ci-stage-3)
-          keys() { jq -c '[.target | keys[]]' <<<"$1"; }
-          stage1=$(keys "$print1")
-          stage2_all=$(keys "$print2")
-          stage3_all=$(keys "$print3")
-          stage2=$(jq -cn --argjson a "$stage2_all" --argjson prev "$stage1" \
-            '[$a[] | select(. as $t | $prev | index($t) | not)]')
-          stage3=$(jq -cn --argjson a "$stage3_all" --argjson prev "$stage2_all" \
-            '[$a[] | select(. as $t | $prev | index($t) | not)]')
+          print=$(REGISTRY=${{ env.REGISTRY }} docker buildx bake --print default)
+          # Derive the build matrix from the dependency graph instead of hard-coded
+          # CI stages: build an undirected adjacency list from the `target:` edges
+          # in `contexts`, label-propagate to a fixed point to find connected
+          # components, then group targets by component. `name` is the component's
+          # root (the target with no outgoing edges, i.e. nothing it depends on) —
+          # chosen purely so job names read well; it plays no role in the grouping.
+          matrix=$(jq -c '
+            .target as $t
+            | ($t | keys) as $nodes
+            | ( [ $t | to_entries[] | .key as $from
+                  | (.value.contexts // {}) | to_entries[]
+                  | select(.value | startswith("target:"))
+                  | {a:$from, b:(.value | ltrimstr("target:"))} ] ) as $edges
+            | ( reduce $edges[] as $e ({}; .[$e.a] += [$e.b] | .[$e.b] += [$e.a]) ) as $adj
+            | ( reduce $edges[] as $e ({}; .[$e.a] += 1) ) as $deps
+            | ( reduce range(0; ($nodes|length)) as $_
+                  ( ($nodes | map({key:., value:.}) | from_entries);
+                    . as $lab
+                    | reduce $nodes[] as $n ($lab;
+                        .[$n] = ([ $n, .[$n] ] + [ ($adj[$n] // [])[] | $lab[.] ] | min)) )
+              ) as $label
+            | $nodes | group_by($label[.])
+            | map( sort as $m
+                   | { name: ([ $m[] | select(($deps[.] // 0) == 0) ] | sort | .[0] // $m[0]),
+                       targets: ($m | join(" ")) } )
+            | sort_by(.name)' <<<"$print")
           {
-            echo "stage-1-targets=$stage1"
-            echo "stage-2-targets=$stage2"
-            echo "stage-3-targets=$stage3"
+            echo "matrix=$matrix"
             echo 'bakeargs-set<<EOF'
             grep -v '^#' buildargs.conf | grep -v '^\s*$' | sed 's/^/*.args./'
             if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -84,10 +94,11 @@ jobs:
             # any tag such as golang:alpine-3.24. Tags are applied later by the
             # `publish` job, once the `verify` job has confirmed the pushed digest is
             # good. The repo to push to is derived from each target's first tag
-            # (e.g. .../golang:latest).
-            jq -rn --argjson p1 "$print1" --argjson p2 "$print2" --argjson p3 "$print3" '
-              ($p1.target + $p2.target + $p3.target)
-              | to_entries[]
+            # (e.g. .../golang:latest). Guard against targets with no tags (e.g. a
+            # future internal-only target) so `.value.tags[0]` doesn't explode.
+            jq -rn --argjson p "$print" '
+              $p.target | to_entries[]
+              | select((.value.tags // []) | length > 0)
               | .key as $k
               | (.value.tags[0] | sub(":[^/]+$"; "")) as $repo
               | ($k + ".tags="),
@@ -95,18 +106,25 @@ jobs:
             echo 'EOF'
           } >> $GITHUB_OUTPUT
 
-  # Fan out over all ci-stage-1 targets in parallel.
-  stage-1:
+  # Fan out over the connected components of the dependency graph in parallel.
+  # Each component is built in one `bake` invocation, so bake resolves and
+  # dedupes the shared subgraph itself instead of build-images.yml re-resolving
+  # it across job boundaries (the old stage split rebuilt base-alpine seven
+  # times per run — see the comment above `group "default"` in docker-bake.hcl).
+  build:
     needs: [discover]
     runs-on: self-hosted
+    timeout-minutes: 60
     strategy:
-      # Without fail-fast: false, the default fail-fast: true cancels sibling targets
-      # mid-build. Because these jobs push as they go, a cancelled sibling can be
-      # interrupted after it has already pushed — leaving e.g. golang:alpine published
-      # without golang:debian. Independent targets should fail independently.
+      # Without fail-fast: false, the default fail-fast: true cancels sibling
+      # components mid-build. Because these jobs push as they go, a cancelled
+      # sibling can be interrupted after it has already pushed — leaving e.g.
+      # base-alpine's component published without base-debian's. Independent
+      # components should fail independently.
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.discover.outputs.stage-1-targets) }}
+        component: ${{ fromJson(needs.discover.outputs.matrix) }}
+    name: build (${{ matrix.component.name }})
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -140,7 +158,7 @@ jobs:
         id: bake
         uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.component.targets }}
           pull: true
           # Always false: `push: true` maps to `--set *.output=type=registry`, which
           # would collide with the per-target `<target>.output=type=image,...` that
@@ -152,165 +170,30 @@ jobs:
         env:
           REGISTRY: ${{ env.REGISTRY }}
 
-      - name: Export digest
+      - name: Export digests
         env:
           METADATA: ${{ steps.bake.outputs.metadata }}
-          TARGET: ${{ matrix.target }}
+          COMPONENT: ${{ matrix.component.name }}
         run: |
           mkdir -p "$RUNNER_TEMP/digests"
           printf '%s' "$METADATA" > "$RUNNER_TEMP/meta.json"
-          jq -er --arg t "$TARGET" \
-            '{($t): (.[$t]["containerimage.digest"] // error("no digest for \($t)"))}' \
-            "$RUNNER_TEMP/meta.json" > "$RUNNER_TEMP/digests/$TARGET.json"
+          # A component builds multiple targets in one bake call, so metadata now
+          # has one entry per target (unlike the old single-target stage jobs).
+          # `buildx.build.warnings` is a sibling key of the target entries in bake
+          # metadata, not a target itself, and must be filtered out.
+          jq -e 'to_entries
+                 | map(select(.key != "buildx.build.warnings"
+                              and (.value["containerimage.digest"]? != null)))
+                 | map({key: .key, value: .value["containerimage.digest"]})
+                 | from_entries
+                 | if length == 0 then error("no digests in bake metadata") else . end' \
+            "$RUNNER_TEMP/meta.json" > "$RUNNER_TEMP/digests/$COMPONENT.json"
 
-      - name: Upload digest
+      - name: Upload digests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digest-${{ matrix.target }}
-          path: ${{ runner.temp }}/digests/${{ matrix.target }}.json
-          retention-days: 1
-
-  # Fan out over all ci-stage-2 targets in parallel. Each target gets its own
-  # runner so images build concurrently rather than sequentially.
-  stage-2:
-    needs: [discover, stage-1]
-    runs-on: self-hosted
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.discover.outputs.stage-2-targets) }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Load build args
-        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
-
-      - name: Set up buildx builder
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-        with:
-          driver-opts: network=host
-          buildkitd-flags: --allow-insecure-entitlement=network.host
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        id: bake
-        uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7
-        with:
-          targets: ${{ matrix.target }}
-          pull: true
-          # Always false: `push: true` maps to `--set *.output=type=registry`, which
-          # would collide with the per-target `<target>.output=type=image,...` that
-          # `discover` now always emits (push-by-digest). Letting that `set` override
-          # be the sole writer of `output` avoids depending on unclear
-          # pattern-vs-exact-key precedence in buildx.
-          push: false
-          set: ${{ needs.discover.outputs.bakeargs-set }}
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-
-      - name: Export digest
-        env:
-          METADATA: ${{ steps.bake.outputs.metadata }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/digests"
-          printf '%s' "$METADATA" > "$RUNNER_TEMP/meta.json"
-          jq -er --arg t "$TARGET" \
-            '{($t): (.[$t]["containerimage.digest"] // error("no digest for \($t)"))}' \
-            "$RUNNER_TEMP/meta.json" > "$RUNNER_TEMP/digests/$TARGET.json"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digest-${{ matrix.target }}
-          path: ${{ runner.temp }}/digests/${{ matrix.target }}.json
-          retention-days: 1
-
-  # Build all-in-one once all stage-2 dependencies are pushed.
-  stage-3:
-    needs: [discover, stage-2]
-    runs-on: self-hosted
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.discover.outputs.stage-3-targets) }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Load build args
-        run: grep -v '^#' buildargs.conf | grep -v '^\s*$' >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
-
-      - name: Set up buildx builder
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-        with:
-          driver-opts: network=host
-          buildkitd-flags: --allow-insecure-entitlement=network.host
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to the Container registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        id: bake
-        uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7
-        with:
-          targets: ${{ matrix.target }}
-          pull: true
-          # Always false: `push: true` maps to `--set *.output=type=registry`, which
-          # would collide with the per-target `<target>.output=type=image,...` that
-          # `discover` now always emits (push-by-digest). Letting that `set` override
-          # be the sole writer of `output` avoids depending on unclear
-          # pattern-vs-exact-key precedence in buildx.
-          push: false
-          set: ${{ needs.discover.outputs.bakeargs-set }}
-        env:
-          REGISTRY: ${{ env.REGISTRY }}
-
-      - name: Export digest
-        env:
-          METADATA: ${{ steps.bake.outputs.metadata }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/digests"
-          printf '%s' "$METADATA" > "$RUNNER_TEMP/meta.json"
-          jq -er --arg t "$TARGET" \
-            '{($t): (.[$t]["containerimage.digest"] // error("no digest for \($t)"))}' \
-            "$RUNNER_TEMP/meta.json" > "$RUNNER_TEMP/digests/$TARGET.json"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: digest-${{ matrix.target }}
-          path: ${{ runner.temp }}/digests/${{ matrix.target }}.json
+          name: digest-${{ matrix.component.name }}
+          path: ${{ runner.temp }}/digests/${{ matrix.component.name }}.json
           retention-days: 1
 
   # Verify the EXACT digests the stage jobs pushed — a real pre-tag gate rather
@@ -322,7 +205,7 @@ jobs:
   # tag. This also drops the old cold, cache-less rebuild of all 15 targets on
   # one runner, which duplicated work the matrices had already done.
   verify:
-    needs: [stage-1, stage-2, stage-3]
+    needs: [build]
     runs-on: self-hosted
     steps:
       - name: Checkout repository
@@ -379,9 +262,7 @@ jobs:
       - name: Apply tags
         run: |
           set -a && source buildargs.conf && set +a
-          bp() { REGISTRY=${{ env.REGISTRY }} docker buildx bake --print "$1"; }
-          print=$(jq -sc '(.[0].target + .[1].target + .[2].target)' \
-                  <(bp ci-stage-1) <(bp ci-stage-2) <(bp ci-stage-3))
+          print=$(REGISTRY=${{ env.REGISTRY }} docker buildx bake --print default | jq -c '.target')
           rc=0
           while IFS=$'\t' read -r target tags; do
             d=$(jq -r --arg t "$target" '.[$t] // empty' digests.json)
@@ -417,7 +298,7 @@ jobs:
   # requiring just "gate" gates the whole pipeline without touching CI when images
   # are added or removed.
   gate:
-    needs: [discover, stage-1, stage-2, stage-3, verify, publish]
+    needs: [discover, build, verify, publish]
     if: always()
     runs-on: self-hosted
     steps:
@@ -427,7 +308,7 @@ jobs:
           # 'pull_request'), so it must be accepted as either "success" or
           # "skipped" — a naive `[ "$r" = "success" ]` loop would fail every PR.
           # Every other job must be "success" on every event.
-          required="${{ needs.discover.result }} ${{ needs.stage-1.result }} ${{ needs.stage-2.result }} ${{ needs.stage-3.result }} ${{ needs.verify.result }}"
+          required="${{ needs.discover.result }} ${{ needs.build.result }} ${{ needs.verify.result }}"
           for r in $required; do
             [ "$r" = "success" ] || { echo "A stage did not succeed: $required"; exit 1; }
           done
