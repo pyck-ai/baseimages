@@ -1,0 +1,116 @@
+# syntax=docker/dockerfile:1
+
+#===============================================================================
+# RUNNER
+#===============================================================================
+#
+# all-in-one + the GitHub Actions runner agent + rootless BuildKit.
+#
+# Trunk is all-in-one, NOT ghcr.io/actions/actions-runner: the agent is a
+# self-contained tarball under /home/runner that copies cleanly onto another
+# base, whereas the toolchain (Go, bun, uv-managed Python, agent CLIs, rover)
+# is spread across /usr/local, /go, /bun and /usr/local/python and would have to
+# be reassembled by hand the other way round. Copying the small thing onto the
+# big one also keeps this target sharing all-in-one's build cache.
+#
+# uid 1001 is what makes this work at all: our `nonroot` and upstream's `runner`
+# are the same uid (see the comment in docker/base/Dockerfile.debian), so the
+# agent's files land with an owner that already exists here.
+
+FROM actionsrunner AS agent
+
+FROM all-in-one
+USER root
+
+#===============================================================================
+# GITHUB ACTIONS RUNNER AGENT
+#===============================================================================
+
+# ARC's chart hardcodes `command: ["/home/runner/run.sh"]` and points
+# ACTIONS_RUNNER_CONTAINER_HOOKS at /home/runner/k8s-novolume/index.js, so the
+# agent has to live at exactly this path — it is an interface, not a preference.
+COPY --from=agent --chown=1001:1001 /home/runner /home/runner
+
+# The agent is a .NET app and needs libicu/libssl/libkrb5 from the distro. Its
+# own installdependencies.sh is the canonical list and tracks each runner
+# release, so call that instead of hand-maintaining an apt line that silently
+# rots when upstream adds a dependency.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    /home/runner/bin/installdependencies.sh
+
+# Upstream's image grants the runner passwordless sudo; some actions assume it.
+# Group is `nonroot` here rather than `runner` because that is the uid-1001
+# account this base already has.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends sudo &&\
+    echo 'nonroot ALL=(ALL:ALL) NOPASSWD:ALL' > /etc/sudoers.d/nonroot &&\
+    chmod 0440 /etc/sudoers.d/nonroot
+
+# Matches upstream's image so the runner traps signals itself and logs to
+# stdout instead of only to _diag files.
+ENV RUNNER_MANUALLY_TRAP_SIG=1
+ENV ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
+
+#===============================================================================
+# ROOTLESS BUILDKIT
+#===============================================================================
+#
+# Lets a job build container images with no Docker daemon and no privileged
+# sidecar — the point being that this pool runs under kata-fc, where dind is
+# not an option.
+#
+# Only the statically-linked binaries are copied. moby/buildkit:rootless is
+# Alpine/musl, so its fuse-overlayfs, fusermount3, newuidmap and newgidmap
+# would fail to exec here (no /lib/ld-musl-*.so.1), and COPY does not carry the
+# file capabilities the uidmap pair relies on. Those come from apt below.
+# buildkit-cni-* and buildkit-qemu-* are deliberately skipped: rootless forces
+# network=host, and cross-arch emulation needs host binfmt_misc we do not have.
+COPY --from=buildkit\
+     /usr/bin/buildkitd\
+     /usr/bin/buildctl\
+     /usr/bin/buildkit-runc\
+     /usr/bin/rootlesskit\
+     /usr/bin/buildctl-daemonless.sh\
+     /usr/bin/
+
+# `buildkit-runc` keeps its name on purpose: buildkitd looks for exactly
+# buildkit-runc then runc, in that order.
+RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
+    --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
+    apt-get update &&\
+    apt-get install -y --no-install-recommends uidmap
+
+# RootlessKit ALWAYS shells out to newuidmap/newgidmap and hard-fails without a
+# subuid range — there is no single-uid fallback path. The vendor image ships
+# `user:100000:65536`; nothing recreates that for us, so a build that works in
+# moby/buildkit:rootless fails here without these two files.
+RUN printf 'nonroot:100000:65536\n' > /etc/subuid &&\
+    cp /etc/subuid /etc/subgid
+
+# buildctl-daemonless.sh runs under `set -eu` and dereferences XDG_RUNTIME_DIR
+# unguarded, so leaving it unset is a hard failure rather than a default.
+ENV XDG_RUNTIME_DIR=/run/user/1001
+ENV TMPDIR=/home/nonroot/.local/tmp
+ENV BUILDKIT_HOST=unix:///run/user/1001/buildkit/buildkitd.sock
+
+# The snapshotter is chosen by probing, not by kernel version: buildkitd tries a
+# real nested overlay mount at its root and only falls back to fuse-overlayfs or
+# native if that fails. Keeping the root on its own directory here; under
+# kata-fc + devmapper the container rootfs is ext4 in the guest, so the nested
+# mount is expected to succeed and give us plain overlayfs.
+RUN install -d -o 1001 -g 1001\
+        /run/user/1001\
+        /home/nonroot/.local/tmp\
+        /home/nonroot/.local/share/buildkit
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+# ARC runs the pod as this user; the agent's files and the buildkit state dirs
+# above are all owned by it.
+USER 1001
+WORKDIR /home/runner
