@@ -69,11 +69,17 @@
 # such as `buildcache`): true for EVERY tagged root, unconditionally. A
 # cache package's tags are live entries for currently-building targets —
 # age and count say nothing about liveness — so only its untagged versions
-# (superseded cache layers) are ever dead. Use this flag for `buildcache`
-# and any similar cache/scratch package; using the image-shaped default
-# policy on such a package works only by accident (it happens to age out
-# tags belonging to images no longer in the bakefile) and will misclassify
-# a genuinely active but infrequently-rebuilt cache tag as garbage.
+# (superseded cache layers) are ever dead. class == infra (today: exactly
+# `buildcache`) gets this AUTOMATICALLY, regardless of the --keep-all-tagged
+# flag/env — a single global flag cannot be set per-package from the
+# workflow, so a scheduled run used to leave buildcache on the image-shaped
+# default policy, benign today only because cache tags happen to be
+# rewritten daily and stay under --keep-days by luck, not by design. The
+# flag itself remains as a manual override for hand runs against any OTHER
+# cache/scratch-shaped package; using the image-shaped default policy on
+# such a package works only by accident (it happens to age out tags
+# belonging to images no longer in the bakefile) and will misclassify a
+# genuinely active but infrequently-rebuilt cache tag as garbage.
 #
 # PACKAGE ENUMERATION is inverted from the old `discover` job, which derived
 # image names from `docker buildx bake --print` — meaning any image renamed
@@ -388,6 +394,10 @@ Options:
                         ignoring --keep-last/--keep-days/--keep-tag-regex.
                         Use for cache-like packages (e.g. buildcache) whose
                         tags are live cache entries, not release history.
+                        Applied AUTOMATICALLY to any package classified
+                        `infra` (today: buildcache) regardless of this
+                        flag; it remains available here as a manual
+                        override for hand runs against other packages.
   --grace-days N        Keep ANY version (tagged or not) younger than N days:
                         in-flight protection for digest-push-then-tag races,
                         and (deliberately equal to --keep-days by default)
@@ -658,13 +668,16 @@ request_with_retry() {
 
 # delete_package_call PKG_NAME -> calls
 # `DELETE /orgs/{OWNER}/packages/container/{PKG_NAME}` via request_with_retry
-# (inheriting its retry/backoff). Treats 204 (deleted) and 404 (already
-# gone) as success and prints a DELETE_PACKAGE_RESULT line for each; any
-# other status is a loud failure with the HTTP status and response body
-# printed verbatim (never swallowed — that status code is the whole point
-# of calling this). Returns 0 on success, 1 on failure. Does NOT check
-# --apply itself: both call sites (the --delete-package escape hatch, and
-# the RETIREMENT path in Main) gate that themselves before calling this.
+# (inheriting its retry/backoff — this is the ONE mutating call in this
+# script that already routed through it correctly; see the version-delete
+# loop in Main for the other one, fixed to match this). Treats 204
+# (deleted) and 404 (already gone) as success and prints a
+# DELETE_PACKAGE_RESULT line for each; any other status is a loud failure
+# with the HTTP status and response body printed verbatim (never swallowed
+# — that status code is the whole point of calling this). Returns 0 on
+# success, 1 on failure. Does NOT check --apply itself: both call sites
+# (the --delete-package escape hatch, and the RETIREMENT path in Main) gate
+# that themselves before calling this.
 delete_package_call() {
   local pkg_name="$1"
   local enc url body headers status
@@ -790,6 +803,20 @@ discover_live_images() {
 # "$WORKDIR/packages.jsonl": {name, repository, visibility}. Only packages
 # whose repository.full_name matches OWNER/REPO and whose name starts with
 # REPO_PREFIX/ are kept.
+#
+# S3: a package can match the name prefix but fail the repository-link half
+# of this filter — most commonly because its `.repository` link is entirely
+# absent (jq evaluates `null.full_name` as `null` without raising, so this
+# silently drops the package: no count, no name, no warning), but the same
+# code path also covers a package linked to some OTHER repo. Either way it
+# is otherwise invisible with only "at least one package survived" as a
+# backstop — precisely the class of bug this whole rewrite exists to fix
+# (see the PACKAGE ENUMERATION header comment: ~40% of the registry went
+# invisible to the previous cleanup for an analogous silent-exclusion
+# reason). So every excluded-by-repository-link match is logged by name and
+# count below. This is a WARNING, not a failure: it does not abort the run
+# (the exclusion may be entirely correct — a package genuinely transferred
+# or unlinked), but it must never again be silent.
 list_packages() {
   local raw="$WORKDIR/packages-raw.jsonl"
   : > "$raw"
@@ -799,6 +826,15 @@ list_packages() {
   jq -c --arg fullrepo "${OWNER}/${REPO}" --arg prefix "${REPO_PREFIX}/" \
     'select(.repository.full_name == $fullrepo and (.name | startswith($prefix))) | {name, repository: .repository.full_name, visibility}' \
     "$raw" > "$WORKDIR/packages.jsonl"
+
+  local excluded_names excluded_count
+  excluded_names=$(jq -r --arg fullrepo "${OWNER}/${REPO}" --arg prefix "${REPO_PREFIX}/" \
+    'select((.repository.full_name != $fullrepo) and (.name | startswith($prefix))) | .name' \
+    "$raw")
+  if [ -n "$excluded_names" ]; then
+    excluded_count=$(printf '%s\n' "$excluded_names" | wc -l | tr -d ' ')
+    log_warn "${excluded_count} package(s) match prefix '${REPO_PREFIX}/' but were EXCLUDED because their repository link is not ${OWNER}/${REPO} (absent, or linked elsewhere): $(printf '%s' "$excluded_names" | tr '\n' ' ')"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -1038,17 +1074,36 @@ plan_package() {
   tag_regex_json=$(printf '%s\n' "${KEEP_TAG_REGEXES[@]}" | jq -R . | jq -s .)
 
   # KEEP_ROOTS: see the --keep-all-tagged header comment. IDENTICAL policy
-  # for every class (live, infra, orphan): protected tag ($by_tag, digest-
+  # for every class (live, infra, orphan) EXCEPT that class == infra always
+  # gets keep-all-tagged behaviour (below): protected tag ($by_tag, digest-
   # scoped — see the header comment for why that alone covers every alias
   # of `latest`) OR newest --keep-last OR younger than --keep-days. No
-  # class-conditional branch here: an orphan that reaches this point
+  # OTHER class-conditional branch here: an orphan that reaches this point
   # already failed the RETIREMENT staleness check above (it has a version
   # younger than $ORPHAN_STALE_DAYS), so it is pruned exactly like a live
   # package — there is no separate, weaker "let an orphan's tags decay"
   # rule anymore. Safety rail #2 below independently re-checks that this
   # policy never actually drops a protected tag into DELETE.
+  #
+  # S4: class == infra IMPLIES keep-all-tagged, unconditionally — this is
+  # about the PACKAGE BEING CACHE-LIKE, not about being "infra" as a label:
+  # today infra means exactly `buildcache`, and the header comment on
+  # --keep-all-tagged explains why the image-shaped default policy "works
+  # only by accident" for a cache package (its tags are live entries for
+  # currently-building targets, not release history — age/count say
+  # nothing about liveness). Before this, the scheduled run left
+  # KEEP_ALL_TAGGED empty (a single global flag can't be set per-package
+  # from the workflow), so buildcache silently got the wrong-shaped policy
+  # and was benign only by luck (cache tags happen to get rewritten daily,
+  # keeping everything under --keep-days). --keep-all-tagged / the
+  # KEEP_ALL_TAGGED env var remain available as a manual override for hand
+  # runs — e.g. testing another cache-like package before it is formally
+  # classified `infra` — hence the `||`, not a replacement of the flag.
+  local effective_keep_all_tagged=$KEEP_ALL_TAGGED
+  [ "$class" = "infra" ] && effective_keep_all_tagged=1
+
   local keep_roots_file="$WORKDIR/keeproots-${image}.txt"
-  if [ "$KEEP_ALL_TAGGED" -eq 1 ]; then
+  if [ "$effective_keep_all_tagged" -eq 1 ]; then
     jq -r '.digest' "$roots_file" | sort -u > "$keep_roots_file"
   else
     jq -rs --argjson regexes "$tag_regex_json" --argjson keeplast "$KEEP_LAST" \
@@ -1086,8 +1141,16 @@ plan_package() {
   local failclosed_file="$WORKDIR/failclosed-${image}.jsonl"
   local subtree_queue="$WORKDIR/sq-${image}.txt"
   local subtree_next="$WORKDIR/sq2-${image}.txt"
+  # S6: parent<TAB>child edges, recorded as a free side effect of every
+  # successful resolve_manifest call below (no extra API calls — $children
+  # is already fetched). Used only by the --delete-broken-roots
+  # reclassification pass further down to answer "does any digest OTHER
+  # than this broken root have it as a child?" without re-resolving
+  # anything. See that pass's own comment for why this question matters.
+  local edges_file="$WORKDIR/edges-${image}.tsv"
   : > "$reachable_file"
   : > "$failclosed_file"
+  : > "$edges_file"
 
   local keep_digest root_tags_json d children subtree_failed
   while IFS= read -r keep_digest; do
@@ -1108,6 +1171,9 @@ plan_package() {
         if children=$(resolve_manifest "$pkg_path" "$token" "$d"); then
           echo "$d" >> "$reachable_file"
           printf '%s\n' "$children" >> "$subtree_next"
+          if [ -n "$children" ]; then
+            printf '%s\n' "$children" | sed "s/^/${d}\t/" >> "$edges_file"
+          fi
         else
           local last_status
           last_status=$(cat "$WORKDIR/resolve-last-status.txt" 2>/dev/null || echo "???")
@@ -1136,7 +1202,7 @@ plan_package() {
   local broken_roots_file="$WORKDIR/brokenroots-${image}.jsonl"
   : > "$broken_roots_file"
   if [ "$DELETE_BROKEN_ROOTS" -eq 1 ] && [ -s "$failclosed_file" ]; then
-    local fc_root class_result class_type broken_digests_file
+    local fc_root class_result class_type broken_digests_file shared_parent
     broken_digests_file="$WORKDIR/broken-digests-${image}.txt"
     : > "$broken_digests_file"
     while IFS= read -r fc_root; do
@@ -1144,6 +1210,22 @@ plan_package() {
       class_result=$(classify_root "$pkg_path" "$token" "$fc_root")
       class_type="${class_result%%$'\t'*}"
       if [ "$class_type" = "broken" ]; then
+        # S6: fc_root's own manifest resolves fine (classify_root confirmed
+        # only its CHILDREN are dead) — but if fc_root's digest is ALSO a
+        # child of some OTHER digest in this package's reachability graph
+        # (a tagged index nested as another index's child; low probability
+        # but the failure mode is severe), removing it from reachable_file
+        # below would move a digest a healthy index still references into
+        # DELETE. Rail #1 cannot catch this: once removed, fc_root simply
+        # isn't in reachable_file to overlap with. edges_file was built as
+        # a free side effect of the reachability BFS above (no extra API
+        # calls), so this check is a single cheap scan, not a fresh
+        # traversal.
+        shared_parent=$(awk -F'\t' -v t="$fc_root" '$2 == t { print $1; exit }' "$edges_file")
+        if [ -n "$shared_parent" ]; then
+          log_warn "${pkg_name}: keep-root ${fc_root} classified broken by --delete-broken-roots, but it is ALSO a child of ${shared_parent} elsewhere in this package's reachability graph — NOT reclassifying it (would risk orphaning a digest a healthy index still references); it stays fail-closed as before."
+          continue
+        fi
         echo "$fc_root" >> "$broken_digests_file"
         local broken_tags_json
         broken_tags_json=$(jq -c --arg r "$fc_root" 'select(.root == $r) | .tags' "$failclosed_file" | head -1)
@@ -1378,14 +1460,29 @@ write_plan_json() {
 
   local jq_rc
   if [ "$phase" = "--final" ]; then
+    # S7: guarded by length rather than a bare "${ARRAY[@]}" expansion —
+    # bash_array_to_json_array's "$# -eq 0" empty-detection needs to see
+    # ZERO arguments when the source array is empty, which "${ARR[@]:-}"
+    # cannot provide (it substitutes one empty-string argument instead, so
+    # this couldn't use the [@]:-} convention used elsewhere in this file
+    # without silently corrupting the "no packages" case into `[""]`
+    # instead of `[]`). Checking length first, and only ever writing
+    # "${ARRAY[@]}" once that length is confirmed non-zero, avoids the
+    # "unbound variable" bash-<4.4 behaviour on an empty array the same as
+    # [@]:-} does elsewhere, without that trade-off.
+    local applied_json='[]' retired_json='[]' regression_json='[]' preexisting_json='[]'
+    [ "${#APPLIED_PACKAGES[@]}" -gt 0 ] && applied_json=$(bash_array_to_json_array "${APPLIED_PACKAGES[@]}")
+    [ "${#RETIRED_PACKAGES[@]}" -gt 0 ] && retired_json=$(bash_array_to_json_array "${RETIRED_PACKAGES[@]}")
+    [ "${#REGRESSION_PACKAGES[@]}" -gt 0 ] && regression_json=$(bash_array_to_json_array "${REGRESSION_PACKAGES[@]}")
+    [ "${#PREEXISTING_CORRUPTION_PACKAGES[@]}" -gt 0 ] && preexisting_json=$(bash_array_to_json_array "${PREEXISTING_CORRUPTION_PACKAGES[@]}")
     jq -n --argjson budget "$BUDGET" --argjson apply "$([ "$APPLY" -eq 1 ] && echo true || echo false)" \
       --argjson max_delete_ratio "$MAX_DELETE_RATIO" --slurpfile packages "$packages_file" \
       --argjson actual_deleted "$ACTUAL_DELETED" --argjson remaining "$REMAINING" \
       --argjson delete_failures "$DELETE_FAILURES" \
-      --argjson applied_packages "$(bash_array_to_json_array "${APPLIED_PACKAGES[@]}")" \
-      --argjson retired_packages "$(bash_array_to_json_array "${RETIRED_PACKAGES[@]}")" \
-      --argjson regression_packages "$(bash_array_to_json_array "${REGRESSION_PACKAGES[@]}")" \
-      --argjson preexisting_corruption_packages "$(bash_array_to_json_array "${PREEXISTING_CORRUPTION_PACKAGES[@]}")" \
+      --argjson applied_packages "$applied_json" \
+      --argjson retired_packages "$retired_json" \
+      --argjson regression_packages "$regression_json" \
+      --argjson preexisting_corruption_packages "$preexisting_json" \
       '{phase: "final", budget: $budget, apply: $apply, max_delete_ratio: $max_delete_ratio,
         packages: $packages[0],
         outcome: {actual_deleted: $actual_deleted, remaining: $remaining,
@@ -1626,7 +1723,10 @@ if [ "$VERIFY_ONLY" -eq 1 ]; then
     log_info "wrote verification results to ${JSON_OUT}"
   fi
 
-  if [ "$verify_any_broken" -eq 1 ]; then
+  # S7: verify_any_broken is a COUNT (incremented per broken package), not
+  # a boolean flag — `-eq 1` silently hid this summary line whenever two or
+  # more packages were broken. `-gt 0` is correct for a count.
+  if [ "$verify_any_broken" -gt 0 ]; then
     echo ""
     echo "=== ${verify_any_broken} package(s) above have known pre-existing broken tags — see runbook / --delete-broken-roots to remediate ==="
   fi
@@ -1754,7 +1854,17 @@ if [ "$APPLY" -eq 1 ]; then
   fi
 
   BUDGET_LEFT=$BUDGET
-  for image in "${PROCESSED_PACKAGES[@]}"; do
+  # S7: guarded with [@]:-} + an immediate empty-check, matching the
+  # convention already used for SKIPPED_PACKAGES/FAILCLOSED_PACKAGES below
+  # — PROCESSED_PACKAGES can legitimately be empty (every package retiring,
+  # skipped, or rail-tripped) and "${ARRAY[@]}" on a declared-but-empty
+  # array throws "unbound variable" under `set -u` on bash < 4.4 (fixed in
+  # 4.4). Harmless on the bash 5.x this normally runs under, but this file
+  # otherwise guards every such expansion, so this one should too.
+  VERDEL_BODY="$WORKDIR/verdel-body"
+  VERDEL_HEADERS="$WORKDIR/verdel-headers"
+  for image in "${PROCESSED_PACKAGES[@]:-}"; do
+    [ -z "$image" ] && continue
     [ "$BUDGET_LEFT" -le 0 ] && break
     pkg_name="${REPO_PREFIX}/${image}"
     enc=$(jq -rn --arg s "$pkg_name" '$s|@uri')
@@ -1807,13 +1917,25 @@ if [ "$APPLY" -eq 1 ]; then
     # timeout-minutes mid-apply). digest travels alongside id (tab-
     # separated) purely for this log line; it does not change the delete
     # ordering established above.
+    #
+    # S1: routed through request_with_retry (not a raw curl call) so a
+    # 429/5xx/timeout gets the same backoff-and-retry every read path in
+    # this script already gets. GitHub applies SECONDARY rate limits to
+    # mutating requests, and a nightly run issues up to --budget deletions
+    # in a matter of minutes — squarely in that territory. Without this, a
+    # single transient 429 was BOTH counted as a permanent DELETE_FAILURES
+    # entry AND still consumed a budget slot for a version that was never
+    # actually attempted-and-failed, just rate-limited. request_with_retry
+    # only returns after up to 3 attempts, so the status checked below is
+    # already the FINAL outcome: a 429 that eventually succeeds surfaces
+    # here as 204/200 (success, not a failure), and only a delete that
+    # genuinely failed after retries reaches the failure branch. Budget is
+    # still spent exactly once per version either way — it tracks "one
+    # version processed this run", not "one bare HTTP attempt".
     while IFS=$'\t' read -r id digest; do
       [ -z "$id" ] && continue
       [ "$BUDGET_LEFT" -le 0 ] && break
-      status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
-        -H "Authorization: Bearer ${GH_TOKEN_VALUE}" \
-        -H "Accept: ${GITHUB_ACCEPT}" \
-        "https://api.github.com/orgs/${OWNER}/packages/container/${enc}/versions/${id}")
+      status=$(request_with_retry "https://api.github.com/orgs/${OWNER}/packages/container/${enc}/versions/${id}" "$GITHUB_ACCEPT" "Authorization: Bearer ${GH_TOKEN_VALUE}" "$VERDEL_BODY" "$VERDEL_HEADERS" DELETE)
       if [ "$status" != "204" ] && [ "$status" != "200" ]; then
         log_warn "failed to delete ${pkg_name} version ${id} (status ${status})"
         DELETE_FAILURES=$((DELETE_FAILURES + 1))
