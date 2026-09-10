@@ -2,6 +2,13 @@
 
 Hardened, multi-arch Docker base images for the pyck.ai platform. All images are published to `ghcr.io/pyck-ai/baseimages/` and support `linux/amd64` and `linux/arm64`.
 
+**Scope: base images only.** An image belongs here if it is a generic, reusable substrate that many projects build `FROM` or pull standalone, and does not belong here if it serves a single project or product. The dividing line is generic versus project-specific, not build-time versus runtime — `nginx` and `static` run an application rather than build one and still belong, because many projects consume them. Two kinds of image that do not:
+
+- **Standalone application images.** `flutter` was one; it moved to its own repository (see [Deprecated tags](#deprecated-tags)).
+- **GitHub Actions runner images.** Those live with the deployment tooling, in [`deployment/Dockerfile.runner`](https://github.com/pyck-ai/deployment/blob/main/Dockerfile.runner).
+
+`docker-bake.hcl` is the source of truth for the registry: a target removed from it stops being built and is eventually cleaned out of GHCR, so a one-project image parked here does not survive on its own.
+
 ## Images
 
 The images fall into a few kinds:
