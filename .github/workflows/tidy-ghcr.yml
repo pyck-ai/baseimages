@@ -62,7 +62,7 @@ on:
         type: boolean
         default: false
       packages:
-        description: 'Space-separated package names to restrict to (empty = all)'
+        description: 'Prune job only: space-separated package names to restrict to (empty = all)'
         type: string
         default: ''
       budget:
@@ -78,10 +78,18 @@ on:
         default: false
       retire_after_days:
         description: >-
-          Only retire (delete outright) a package whose last update is older
-          than this many days. Applies to the retire job only.
+          Retire job only: only retire (delete outright) a package whose
+          last update is older than this many days.
         type: string
         default: '30'
+      retire_packages:
+        description: >-
+          Retire job only: space-separated package names to restrict which
+          packages retire will consider (empty = all). Eligibility rules
+          (live / infra / too-recent) still apply to whatever is named — a
+          named package is not retired just because it was listed here.
+        type: string
+        default: ''
 
 # Never cancel a running prune job — partial cleanup is worse than no cleanup.
 concurrency:
@@ -107,6 +115,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLY: ${{ inputs.apply }}
           AFTER_DAYS: ${{ inputs.retire_after_days }}
+          RETIRE_PACKAGES: ${{ inputs.retire_packages }}
         run: .github/scripts/tidy-ghcr/retire.sh --json retire-plan.json
 
       - name: Upload retire plan

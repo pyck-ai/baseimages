@@ -54,8 +54,17 @@
 #
 # Usage:
 #   retire.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
-#             [--after-days N] [--infra NAME]... [--max-retire N]
-#             [--apply] [--force] [--json FILE]
+#             [--package NAME]... [--after-days N] [--infra NAME]...
+#             [--max-retire N] [--apply] [--force] [--json FILE]
+#
+# --package NAME (repeatable) RESTRICTS the candidate set to the named bare
+# image names; it does NOT bypass any eligibility check. A named package
+# must still be repo-linked, absent from the bakefile, not infra, and older
+# than --after-days to be retired — if it fails any of those, it is reported
+# with the reason (live / infra / too-recent) rather than silently skipped.
+# A named package that doesn't exist at all under <owner>/<repo> with prefix
+# <repo-prefix>/ is an OPERATIONAL failure (exit 2), not a silent no-op.
+# --max-retire still applies to the filtered set.
 #
 # Backs: tidy-ghcr.yml, job `retire`, step "Retire orphaned packages". This
 # script doubles as the workflow entry point (the former thin wrapper script
@@ -65,12 +74,17 @@
 # (what a `schedule` event yields), is treated as false, which is what keeps
 # scheduled runs dry.
 #
-#   APPLY        - "true" to enable --apply; anything else is dry-run
-#   AFTER_DAYS   - default for --after-days
-#   MAX_RETIRE   - default for --max-retire
-#   OWNER        - default for --owner
-#   REPO         - default for --repo
-#   REPO_PREFIX  - default for --repo-prefix
+#   APPLY            - "true" to enable --apply; anything else is dry-run
+#   RETIRE_PACKAGES  - space-separated package names, each becomes a
+#                      repeated --package. NOTE: deliberately not named
+#                      PACKAGES — that name is already bound to prune.sh in
+#                      tidy-ghcr.yml, and reusing it here would silently
+#                      scope the wrong job.
+#   AFTER_DAYS       - default for --after-days
+#   MAX_RETIRE       - default for --max-retire
+#   OWNER            - default for --owner
+#   REPO             - default for --repo
+#   REPO_PREFIX      - default for --repo-prefix
 #
 # When run under GitHub Actions (GITHUB_ACTIONS is set), this script also
 # annotates its own exit code with a human-readable ::warning::/::error::
@@ -114,6 +128,13 @@ APPLY=0
 OWNER="${OWNER:-pyck-ai}"
 REPO="${REPO:-baseimages}"
 REPO_PREFIX="${REPO_PREFIX:-baseimages}"
+REQUESTED_PACKAGES=()
+if [ -n "${RETIRE_PACKAGES:-}" ]; then
+  for _p in $RETIRE_PACKAGES; do
+    REQUESTED_PACKAGES+=("$_p")
+  done
+  unset _p
+fi
 AFTER_DAYS="${AFTER_DAYS:-30}"
 INFRA_NAMES=()
 MAX_RETIRE="${MAX_RETIRE:-3}"
@@ -123,7 +144,8 @@ JSON_OUT=""
 usage() {
   cat <<'EOF'
 Usage: retire.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
-                           [--after-days N] [--infra NAME]... [--max-retire N]
+                           [--package NAME]... [--after-days N]
+                           [--infra NAME]... [--max-retire N]
                            [--apply] [--force] [--json FILE]
 
 Deletes ENTIRE orphaned GHCR container packages (every version at once) for
@@ -136,6 +158,15 @@ Options:
   --repo REPO             Repository packages must be linked to (default: baseimages)
   --repo-prefix PREFIX    Package name prefix (default: baseimages); packages
                           are addressed as <repo-prefix>/<image>
+  --package NAME          Restrict to this bare image name (e.g. aws,
+                          renovate); repeatable. Restricts the candidate set
+                          only — eligibility rules (live/infra/too-recent)
+                          still apply, and a named package is reported with
+                          its reason rather than silently skipped. A named
+                          package that does not exist at all is an
+                          operational failure (exit 2). Default: every
+                          package linked to <owner>/<repo> whose name starts
+                          with <repo-prefix>/
   --after-days N          Only retire packages whose updated_at is older than
                           N days (default: 30)
   --infra NAME            Package (bare) name to treat as infra, never
@@ -171,6 +202,10 @@ while [ $# -gt 0 ]; do
       ;;
     --repo-prefix)
       REPO_PREFIX="${2:?--repo-prefix requires a value}"
+      shift 2
+      ;;
+    --package)
+      REQUESTED_PACKAGES+=("${2:?--package requires a value}")
       shift 2
       ;;
     --after-days)
@@ -414,6 +449,41 @@ if [ ! -s "$WORKDIR/packages.jsonl" ]; then
   exit 2
 fi
 
+# --package restricts the candidate set. This only narrows WHICH packages
+# are considered below; every eligibility check (live/infra/too-recent)
+# still runs normally on whatever survives the filter. A requested package
+# that isn't present at all under this owner/repo/prefix is an operational
+# failure, not a silent no-op.
+if [ "${#REQUESTED_PACKAGES[@]}" -gt 0 ]; then
+  ALL_PACKAGES_FILE="$WORKDIR/packages-all.jsonl"
+  cp "$WORKDIR/packages.jsonl" "$ALL_PACKAGES_FILE"
+  : > "$WORKDIR/packages.jsonl"
+  while IFS= read -r pkg_json; do
+    name=$(printf '%s' "$pkg_json" | jq -r '.name')
+    image="${name#"${REPO_PREFIX}"/}"
+    for want in "${REQUESTED_PACKAGES[@]}"; do
+      if [ "$want" = "$image" ]; then
+        echo "$pkg_json" >> "$WORKDIR/packages.jsonl"
+        break
+      fi
+    done
+  done < "$ALL_PACKAGES_FILE"
+
+  for want in "${REQUESTED_PACKAGES[@]}"; do
+    found=0
+    while IFS= read -r pkg_json; do
+      [ -z "$pkg_json" ] && continue
+      name=$(printf '%s' "$pkg_json" | jq -r '.name')
+      image="${name#"${REPO_PREFIX}"/}"
+      [ "$want" = "$image" ] && found=1 && break
+    done < "$WORKDIR/packages.jsonl"
+    if [ "$found" -ne 1 ]; then
+      log_err "requested package '${want}' not found under ${OWNER}/${REPO} with prefix ${REPO_PREFIX}/"
+      exit 2
+    fi
+  done
+fi
+
 is_infra() {
   local image="$1" n
   for n in "${INFRA_NAMES[@]}"; do
@@ -480,7 +550,11 @@ CANDIDATE_COUNT=$(wc -l < "$CANDIDATES_FILE" | tr -d ' ')
 # Reporting: full table of every package.
 # ---------------------------------------------------------------------------
 
-echo "=== package inventory (owner=${OWNER} repo=${REPO} prefix=${REPO_PREFIX}/ after-days=${AFTER_DAYS} max-retire=${MAX_RETIRE}) ==="
+PACKAGE_FILTER_DESC="all"
+if [ "${#REQUESTED_PACKAGES[@]}" -gt 0 ]; then
+  PACKAGE_FILTER_DESC="${REQUESTED_PACKAGES[*]}"
+fi
+echo "=== package inventory (owner=${OWNER} repo=${REPO} prefix=${REPO_PREFIX}/ packages=${PACKAGE_FILTER_DESC} after-days=${AFTER_DAYS} max-retire=${MAX_RETIRE}) ==="
 printf '%-14s %-8s %10s  %-22s %10s  %s\n' "PACKAGE" "CLASS" "VERSIONS" "UPDATED_AT" "DAYS_AGO" "ACTION"
 
 RETIRE_SET_FILE="$WORKDIR/retire-set.jsonl"
