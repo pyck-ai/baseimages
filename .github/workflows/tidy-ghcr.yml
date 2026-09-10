@@ -1,10 +1,19 @@
 name: tidy-ghcr
 run-name: Tidy GHCR
 
-# Runs `.github/scripts/prune-ghcr.sh`, which prunes GHCR package versions in
-# this repo's `pyck-ai/baseimages` packages using reachability from kept
-# tagged roots (index -> child manifest, attestation manifests owned by
-# their subject) rather than a flat "untagged == garbage" rule.
+# Two jobs, in dependency order:
+#
+#   retire - runs `.github/scripts/retire-packages.sh`, which deletes ENTIRE
+#            GHCR packages that are no longer a target in the bakefile
+#            (renamed/removed images) and have been untouched for
+#            --retire-after-days. Runs FIRST so a whole-package retirement
+#            avoids spending API budget pruning versions of a package that's
+#            about to be deleted outright.
+#   prune  - runs `.github/scripts/prune-ghcr.sh`, which prunes GHCR package
+#            versions in this repo's `pyck-ai/baseimages` packages using
+#            reachability from kept tagged roots (index -> child manifest,
+#            attestation manifests owned by their subject) rather than a
+#            flat "untagged == garbage" rule.
 #
 # WHY THE OLD APPROACH IS GONE: this workflow used to run
 # vlaurin/action-ghcr-prune with `prune-untagged: true`. GHCR lists the
@@ -30,16 +39,17 @@ run-name: Tidy GHCR
 # their existing corruption is remediated separately; that is expected, not
 # a bug in this workflow.
 #
-# There is deliberately NO `schedule:` here. A workflow file is ACTIVE from
-# the moment it merges — the old cleanup.yml was only dormant because
-# someone had disabled it by hand, and that state does not carry over to a
-# new file. The unsafe action is gone and the replacement script defaults to
-# dry-run with real safety rails, but this workflow stays dispatch-only
-# until a first supervised `apply` run has been reviewed. Once that review
-# is done, restore a cron here (offset from tidy-repo.yml's 12:00 UTC run so
-# the two don't contend for the shared per-repository GitHub API rate-limit
-# budget) and flip the default of the `apply` input.
+# THE `schedule:` TRIGGER BELOW IS SAFE, unlike a bare dispatch-only workflow
+# would have been while both scripts still had unproven safety rails: on a
+# `schedule` event `inputs.apply` is empty (falsy), so BOTH jobs run in DRY
+# RUN and simply report — nothing is ever deleted by the cron. This is what
+# makes maintenance automatic. Arming actual deletion means either flipping
+# the default of the `apply` input (after a supervised manual run has been
+# reviewed) or passing `apply: true` explicitly on a manual dispatch; the
+# schedule itself never supplies it.
 on:
+  schedule:
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       apply:
@@ -61,6 +71,12 @@ on:
           for currently-building targets rather than retention candidates.
         type: boolean
         default: false
+      retire_after_days:
+        description: >-
+          Only retire (delete outright) a package whose last update is older
+          than this many days. Applies to the retire job only.
+        type: string
+        default: '30'
 
 # Never cancel a running prune job — partial cleanup is worse than no cleanup.
 concurrency:
@@ -72,8 +88,36 @@ permissions:
   packages: write
 
 jobs:
+  retire:
+    name: Retire orphaned GHCR packages
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Run retire-packages.sh
+        id: retire
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IN_APPLY: ${{ inputs.apply }}
+          IN_RETIRE_AFTER_DAYS: ${{ inputs.retire_after_days || '30' }}
+        run: .github/scripts/ci/retire.sh
+
+      - name: Upload retire plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: retire-plan
+          path: retire-plan.json
+          retention-days: 7
+
+  # Runs after `retire` so an entire package about to be deleted outright
+  # doesn't also get its versions pruned in the same run — see the header
+  # comment for the full rationale.
   prune:
     name: Prune GHCR packages
+    needs: [retire]
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
