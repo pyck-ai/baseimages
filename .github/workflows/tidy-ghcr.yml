@@ -36,13 +36,17 @@ run-name: Tidy GHCR
 # renamed or removed from the bakefile. There is no `discover` job here
 # anymore; the script does that itself.
 #
-# `nginx` and `rover` CANNOT be pruned yet: they already have broken tags
-# from the incident above (missing child manifests under a currently-tagged
-# root), and prune.sh correctly refuses to compute a plan for a package
-# when a kept root's manifest tree doesn't fully resolve (safety rail #3,
-# fail-closed). Those two packages must be reported as fail-closed until
-# their existing corruption is remediated separately; that is expected, not
-# a bug in this workflow.
+# `nginx` and `rover` CANNOT be pruned by a plain run: they already have
+# broken tags from the incident above (missing child manifests under a
+# currently-tagged root), and prune.sh correctly refuses to compute a plan
+# for a package when a kept root's manifest tree doesn't fully resolve
+# (safety rail #3, fail-closed). That is expected, not a bug in this
+# workflow — and it's what the `delete_broken_roots` dispatch input below
+# is for: it clears that corruption by removing the dead index roots
+# themselves (every direct child of the root independently confirmed 404),
+# after which the packages prune normally. It still requires `apply: true`
+# to actually delete anything; without `apply` it only reports which roots
+# it would remove.
 #
 # CREDENTIAL: both jobs require the `GHCR_ADMIN_TOKEN` repository secret (a
 # classic PAT with read:packages, delete:packages and read:org). Both
@@ -86,6 +90,16 @@ on:
           Keep every tagged root regardless of age or count. Correct mode for
           cache-like packages such as buildcache, whose tags are live entries
           for currently-building targets rather than retention candidates.
+        type: boolean
+        default: false
+      delete_broken_roots:
+        description: >-
+          Prune job only: remediation mode for pre-existing corruption.
+          Removes index versions whose child manifests are confirmed missing
+          (every direct child independently verified 404, never merely
+          unresolved) instead of leaving the whole package fail-closed.
+          Reported in its own section either way; requires apply=true to
+          actually delete anything.
         type: boolean
         default: false
       retire_after_days:
@@ -168,6 +182,7 @@ jobs:
           PACKAGES: ${{ inputs.packages }}
           BUDGET: ${{ inputs.budget }}
           KEEP_ALL_TAGGED: ${{ inputs.keep_all_tagged }}
+          DELETE_BROKEN_ROOTS: ${{ inputs.delete_broken_roots }}
         run: .github/scripts/tidy-ghcr/prune.sh --json prune-plan.json
 
       - name: Upload prune plan

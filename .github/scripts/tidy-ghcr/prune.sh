@@ -68,6 +68,9 @@
 #      skipped (fail-closed) and reported in the FAIL-CLOSED section: this
 #      is real, already-existing registry corruption, not a bug in this
 #      script, so other packages are still processed normally.
+#      --delete-broken-roots narrows this rail (see below) rather than
+#      removing it: a root only escapes fail-closed if EVERY one of its
+#      direct children is a confirmed 404, never merely "unresolved".
 #   #4 DELETE must not exceed --max-delete-ratio (default 0.98) of a
 #      package's total versions, unless --force. This is a PER-PACKAGE
 #      skip-and-continue, not a whole-run abort: a high delete ratio is the
@@ -77,6 +80,27 @@
 #      builds). The rail exists to catch "classification went wrong and
 #      this is about to delete nearly everything", not to gate normal
 #      cleanup, hence the high default threshold.
+#
+# --delete-broken-roots: remediation mode for pre-existing corruption (a
+# keep-root whose descendants were already deleted by a *previous* buggy
+# prune, e.g. nginx/rover — see rail #3). Off by default: with it off,
+# behaviour is EXACTLY as without this flag at all — any unresolved
+# descendant fails the whole package closed. With it on, a keep-root is
+# reclassified as `broken` (dead index) rather than merely `unresolved`
+# ONLY if EVERY one of its direct children definitively returns 404 —
+# genuinely gone, not merely "couldn't be resolved just now". If even one
+# child returns anything else (a live 200, a 429/5xx/timeout, i.e. status
+# unknown), the root is NOT broken and the whole package still fails
+# closed, exactly as today; the retry-with-backoff in request_with_retry
+# still runs first, so a rate limit is never mistaken for a 404. A
+# confirmed-broken root is added to that package's DELETE set (subject to
+# every existing safety rail — #1, #2, #4, the budget) instead of forcing
+# the whole package to be skipped, and is reported in its own BROKEN ROOTS
+# section (digest + tags) separate from the ordinary delete plan, so a
+# reviewer sees exactly which tags are about to disappear because their
+# index was already dead. This does not touch classification of orphan
+# vs. live/infra packages, and requires --apply (same as everything else
+# in this script) to actually delete anything.
 #
 # CREDENTIAL: GITHUB_TOKEN/GH_TOKEN must be a classic PAT with read:packages,
 # read:org (and delete:packages to --apply) — see list_packages below. A
@@ -101,7 +125,8 @@
 #            [--package NAME]... [--keep-last N] [--keep-days N]
 #            [--keep-all-tagged] [--grace-days N] [--keep-tag-regex RE]...
 #            [--max-delete-ratio R] [--budget N] [--include-orphans]
-#            [--apply] [--force] [--verify-only] [--json FILE]
+#            [--delete-broken-roots] [--apply] [--force] [--verify-only]
+#            [--json FILE]
 #
 # Backs: tidy-ghcr.yml, job `prune`, step "Prune GHCR packages". This script
 # doubles as the workflow entry point (the former thin wrapper script has
@@ -111,14 +136,15 @@
 # including unset/empty (what a `schedule` event yields), is treated as
 # false, which is what keeps scheduled runs dry.
 #
-#   APPLY            - "true" to enable --apply; anything else is dry-run
-#   PACKAGES         - space-separated package names, each becomes a
-#                      repeated --package
-#   BUDGET           - default for --budget
-#   KEEP_ALL_TAGGED  - "true" to enable --keep-all-tagged
-#   OWNER            - default for --owner
-#   REPO             - default for --repo
-#   REPO_PREFIX      - default for --repo-prefix
+#   APPLY               - "true" to enable --apply; anything else is dry-run
+#   PACKAGES            - space-separated package names, each becomes a
+#                         repeated --package
+#   BUDGET              - default for --budget
+#   KEEP_ALL_TAGGED     - "true" to enable --keep-all-tagged
+#   DELETE_BROKEN_ROOTS - "true" to enable --delete-broken-roots
+#   OWNER               - default for --owner
+#   REPO                - default for --repo
+#   REPO_PREFIX         - default for --repo-prefix
 #
 # When run under GitHub Actions (GITHUB_ACTIONS is set), this script also
 # annotates its own exit code with a human-readable ::warning::/::error::
@@ -147,7 +173,7 @@ if [ -n "${GITHUB_ACTIONS:-}" ]; then
       3) echo "::error::prune.sh exited 3: a safety rail tripped, or post-apply verification found a kept tag now broken. Nothing unsafe was deleted." ;;
       *) echo "::error::prune.sh exited unexpected code $rc." ;;
     esac
-    echo "NOTE: exit 2 with nginx and/or rover reported under FAIL-CLOSED is currently EXPECTED — those two packages already have broken tags from the pre-existing registry corruption (see audit.sh) and prune.sh correctly refuses to plan for them until that is remediated separately. This is not a new problem introduced by this run."
+    echo "NOTE: exit 2 with nginx and/or rover reported under FAIL-CLOSED is currently EXPECTED — those two packages already have broken tags from the pre-existing registry corruption (see audit.sh) and prune.sh correctly refuses to plan for them until that is remediated separately. Pass --delete-broken-roots to remediate: it clears keep-roots whose descendants are all confirmed 404 (dead indexes) so those packages can be pruned normally. This is not a new problem introduced by this run."
   }
 fi
 
@@ -160,6 +186,7 @@ fi
 # reassigned below, since the env vars and the internal flags share names.
 APPLY_FROM_ENV="${APPLY:-}"
 KEEP_ALL_TAGGED_FROM_ENV="${KEEP_ALL_TAGGED:-}"
+DELETE_BROKEN_ROOTS_FROM_ENV="${DELETE_BROKEN_ROOTS:-}"
 
 OWNER="${OWNER:-pyck-ai}"
 REPO="${REPO:-baseimages}"
@@ -180,6 +207,8 @@ KEEP_TAG_REGEXES=()
 MAX_DELETE_RATIO="0.98"
 BUDGET="${BUDGET:-400}"
 INCLUDE_ORPHANS=0
+DELETE_BROKEN_ROOTS=0
+[ "$DELETE_BROKEN_ROOTS_FROM_ENV" = "true" ] && DELETE_BROKEN_ROOTS=1
 APPLY=0
 [ "$APPLY_FROM_ENV" = "true" ] && APPLY=1
 FORCE=0
@@ -192,7 +221,8 @@ Usage: prune.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
                       [--package NAME]... [--keep-last N] [--keep-days N]
                       [--keep-all-tagged] [--grace-days N]
                       [--keep-tag-regex RE]... [--max-delete-ratio R]
-                      [--budget N] [--include-orphans] [--apply] [--force]
+                      [--budget N] [--include-orphans]
+                      [--delete-broken-roots] [--apply] [--force]
                       [--verify-only] [--json FILE]
 
 Reachability-safe prune of this repo's GHCR container packages. See the
@@ -227,6 +257,15 @@ Options:
                         remainder (default: 400)
   --include-orphans     Also operate on packages not classified live/infra
                         (default: report them only, never touch them)
+  --delete-broken-roots Remediation mode: a keep-root whose EVERY direct
+                        child resolves as a confirmed 404 (dead index —
+                        pre-existing corruption, not touched by this run)
+                        is added to that package's delete set instead of
+                        forcing the whole package to fail closed. Any root
+                        with even one non-404-unresolvable child still
+                        fails the package closed, exactly as without this
+                        flag. Reported in its own BROKEN ROOTS section.
+                        Default: off (unchanged fail-closed behaviour).
   --apply               Actually delete. Without this flag nothing is ever
                         deleted, regardless of any other option. Runs
                         verification (see --verify-only) afterwards on every
@@ -298,6 +337,10 @@ while [ $# -gt 0 ]; do
       ;;
     --include-orphans)
       INCLUDE_ORPHANS=1
+      shift
+      ;;
+    --delete-broken-roots)
+      DELETE_BROKEN_ROOTS=1
       shift
       ;;
     --apply)
@@ -636,6 +679,65 @@ resolve_manifest() {
   return 0
 }
 
+# classify_root PKG_PATH TOKEN ROOT_DIGEST -> only used when
+# --delete-broken-roots is active, and only for a root that already failed
+# to resolve fully in the main reachability pass. Independently re-resolves
+# the root and each of its DIRECT children (resolve_manifest already
+# retries-with-backoff before concluding a status, so a rate limit is never
+# mistaken for 404) and prints one tab-separated line on stdout:
+#
+#   broken\t<dead-count>\t          every direct child confirmed 404 (dead
+#                                   index — eligible for deletion)
+#   partial\t<live>/<dead>\t        some children resolved, some 404 — NOT
+#                                   broken (ambiguous; package stays
+#                                   fail-closed for this root)
+#   unknown\tSTATUS\tDIGEST         the root itself, or some child,
+#                                   returned neither 200 nor 404 (rate
+#                                   limit, 5xx, timeout, ...) — status
+#                                   unknown; package stays fail-closed
+#   flat\t\t                       root has no children at all (shouldn't
+#                                   normally reach here, since a flat
+#                                   manifest can't fail to resolve its
+#                                   nonexistent children — treated as not
+#                                   broken, out of caution)
+classify_root() {
+  local pkg_path="$1" token="$2" root_digest="$3"
+  local children status
+
+  if ! children=$(resolve_manifest "$pkg_path" "$token" "$root_digest"); then
+    status=$(cat "$WORKDIR/resolve-last-status.txt" 2>/dev/null || echo "???")
+    printf 'unknown\t%s\t%s\n' "$status" "$root_digest"
+    return
+  fi
+
+  if [ -z "$children" ]; then
+    printf 'flat\t\t\n'
+    return
+  fi
+
+  local dead=0 live=0 c child_status
+  while IFS= read -r c; do
+    [ -z "$c" ] && continue
+    if resolve_manifest "$pkg_path" "$token" "$c" >/dev/null 2>&1; then
+      live=$((live + 1))
+    else
+      child_status=$(cat "$WORKDIR/resolve-last-status.txt" 2>/dev/null || echo "???")
+      if [ "$child_status" = "404" ]; then
+        dead=$((dead + 1))
+      else
+        printf 'unknown\t%s\t%s\n' "$child_status" "$c"
+        return
+      fi
+    fi
+  done <<< "$children"
+
+  if [ "$live" -gt 0 ]; then
+    printf 'partial\t%s/%s\t\n' "$live" "$dead"
+  else
+    printf 'broken\t%s\t\n' "$dead"
+  fi
+}
+
 # plan_package IMAGE CLASS -> writes "$WORKDIR/plan-<image>.json" with the
 # full per-package plan, and prints the summary line. Returns:
 #   0 ok
@@ -759,6 +861,54 @@ plan_package() {
     done
   done < "$keep_roots_file"
 
+  # --- --delete-broken-roots: reclassify. Purely a post-processing pass
+  # over failclosed_file (populated above exactly as without this flag) —
+  # detection logic above is completely unmodified, so with the flag off
+  # nothing below this point ever runs and behaviour is byte-for-byte
+  # unchanged from before this feature existed.
+  local broken_roots_file="$WORKDIR/brokenroots-${image}.jsonl"
+  : > "$broken_roots_file"
+  if [ "$DELETE_BROKEN_ROOTS" -eq 1 ] && [ -s "$failclosed_file" ]; then
+    local fc_root class_result class_type broken_digests_file
+    broken_digests_file="$WORKDIR/broken-digests-${image}.txt"
+    : > "$broken_digests_file"
+    while IFS= read -r fc_root; do
+      [ -z "$fc_root" ] && continue
+      class_result=$(classify_root "$pkg_path" "$token" "$fc_root")
+      class_type="${class_result%%$'\t'*}"
+      if [ "$class_type" = "broken" ]; then
+        echo "$fc_root" >> "$broken_digests_file"
+        local broken_tags_json
+        broken_tags_json=$(jq -c --arg r "$fc_root" 'select(.root == $r) | .tags' "$failclosed_file" | head -1)
+        [ -z "$broken_tags_json" ] && broken_tags_json="[]"
+        jq -cn --arg root "$fc_root" --argjson tags "$broken_tags_json" \
+          '{root: $root, tags: $tags}' >> "$broken_roots_file"
+        # The root's OWN manifest resolves fine (it's the index doc itself
+        # that's still present — only its children are gone), so the BFS
+        # above already added it to reachable_file; undo that so it's
+        # eligible to land in DELETE below instead (rail #1 requires
+        # DELETE ∩ REACHABLE to stay empty).
+        if [ -s "$reachable_file" ]; then
+          grep -vxF "$fc_root" "$reachable_file" > "$reachable_file.tmp" 2>/dev/null || : > "$reachable_file.tmp"
+          mv "$reachable_file.tmp" "$reachable_file"
+        fi
+      fi
+    done < <(jq -r '.root' "$failclosed_file" | sort -u)
+
+    if [ -s "$broken_digests_file" ]; then
+      # Drop the now-explained entries from failclosed_file; any root NOT
+      # confirmed broken (unknown status, or partial: some children still
+      # live) stays in failclosed_file and keeps failing the package
+      # closed, exactly as without this flag.
+      jq -c --slurpfile broken <(jq -Rn '[inputs]' "$broken_digests_file") \
+        'select((.root as $r | ($broken[0] | index($r))) == null)' "$failclosed_file" > "${failclosed_file}.tmp"
+      mv "${failclosed_file}.tmp" "$failclosed_file"
+      local broken_count
+      broken_count=$(wc -l < "$broken_roots_file" | tr -d ' ')
+      log_info "${pkg_name}: reclassified ${broken_count} keep-root(s) as broken (all direct children confirmed 404) via --delete-broken-roots"
+    fi
+  fi
+
   if [ -s "$failclosed_file" ]; then
     local failcount
     failcount=$(wc -l < "$failclosed_file" | tr -d ' ')
@@ -830,15 +980,23 @@ plan_package() {
     return 4
   fi
 
-  echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}"
+  local broken_roots_count
+  broken_roots_count=$(wc -l < "$broken_roots_file" | tr -d ' ')
+
+  if [ "$broken_roots_count" -gt 0 ]; then
+    echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  broken_roots=${broken_roots_count}  DELETE=${delete_count}"
+  else
+    echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}"
+  fi
 
   jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
     --argjson total "$total" --argjson roots "$roots_total" --argjson keep_roots "$keep_roots_count" \
     --argjson reachable "$reachable_count" --argjson inflight "$inflight_count" \
-    --slurpfile delete_items "$delete_file" \
+    --slurpfile delete_items "$delete_file" --slurpfile broken_root_items "$broken_roots_file" \
     '{image: $image, package: $pkg, class: $class, total: $total, roots: $roots,
       keep_roots: $keep_roots, reachable: $reachable, inflight: $inflight,
-      delete: $delete_items, delete_count: ($delete_items | length)}' \
+      delete: $delete_items, delete_count: ($delete_items | length),
+      broken_roots: $broken_root_items, broken_roots_count: ($broken_root_items | length)}' \
     > "$WORKDIR/plan-${image}.json"
 
   return 0
@@ -962,6 +1120,7 @@ SKIPPED_PACKAGES=()
 RATIO_TRIPPED_PACKAGES=()
 FAILCLOSED_PACKAGES=()
 PROCESSED_PACKAGES=()
+BROKEN_ROOTS_PACKAGES=()
 
 while IFS=$'\t' read -r image class; do
   [ -z "$image" ] && continue
@@ -979,6 +1138,9 @@ while IFS=$'\t' read -r image class; do
       dc=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
       TOTAL_DELETE=$((TOTAL_DELETE + dc))
       TOTAL_PLANNED=$((TOTAL_PLANNED + 1))
+      if [ "$DELETE_BROKEN_ROOTS" -eq 1 ] && jq -e '(.broken_roots_count // 0) > 0' "$WORKDIR/plan-${image}.json" >/dev/null 2>&1; then
+        BROKEN_ROOTS_PACKAGES+=("$image")
+      fi
       ;;
     2)
       SKIPPED_PACKAGES+=("$image")
@@ -1088,6 +1250,21 @@ if [ "${#RATIO_TRIPPED_PACKAGES[@]}" -gt 0 ]; then
     dc=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
     tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
     echo "  ${image}: DELETE ${dc}/${tot} = ${ratio_pct}% (pass --force to include it anyway)"
+  done
+fi
+
+if [ "${#BROKEN_ROOTS_PACKAGES[@]}" -gt 0 ]; then
+  echo ""
+  echo "=== BROKEN ROOTS (--delete-broken-roots) — dead indexes added to the delete plan ==="
+  echo "Every direct child of each root below was independently confirmed 404 (genuinely"
+  echo "gone, not merely unresolved — see classify_root). These are index versions left"
+  echo "over from pre-existing registry corruption; deleting them is what allows the rest"
+  echo "of the package to be pruned instead of failing closed. Subject to every existing"
+  echo "safety rail (#1/#2/#4, the budget) just like the rest of the delete plan."
+  for image in "${BROKEN_ROOTS_PACKAGES[@]}"; do
+    echo "  ${image}:"
+    jq -r '.broken_roots[] | "    " + .root + "  tags: " + ((.tags // []) | join(", "))' \
+      "$WORKDIR/plan-${image}.json"
   done
 fi
 
