@@ -22,6 +22,18 @@ FROM actionsrunner AS agent
 FROM all-in-one
 USER root
 
+# all-in-one's `install -d -o nonroot -g nonroot /go /go/bin /go/pkg/mod
+# /var/cache/go` (docker/base and docker/golang Dockerfiles) names /go/pkg/mod
+# explicitly but never its parent /go/pkg, which install(1) then creates as an
+# implicit parent with default root ownership. Invisible until a module needs
+# sumdb verification for the first time: Go can write existing entries under
+# the already-nonroot /go/pkg/mod fine, but mkdir'ing a NEW sibling like
+# /go/pkg/sumdb/ hits EPERM on /go/pkg itself, surfacing as a raw ENOENT
+# ("open /go/pkg/sumdb/sum.golang.org/latest: no such file or directory") that
+# reads like a network failure and is not one — confirmed live (DNS resolves,
+# sum.golang.org and the GOPROXY sumdb-proxy path both return 200).
+RUN chown nonroot:nonroot /go/pkg
+
 #===============================================================================
 # GITHUB ACTIONS RUNNER AGENT
 #===============================================================================
@@ -54,6 +66,15 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
 ENV RUNNER_MANUALLY_TRAP_SIG=1
 ENV ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
 
+# buildkitd's rootless-defaults gate (isRootlessConfig, cmd/buildkitd/main.go)
+# checks $USER is non-empty and not "root" before it will steer its state dir
+# off the root-owned /var/lib/buildkit — HOME only matters once that gate is
+# already open, appdefaults.UserRoot() falls back to /var/lib/buildkit if it
+# is empty too. Base images normally leave both unset since GHA job
+# containers don't need them; this one does, for BuildKit below.
+ENV USER=nonroot
+ENV HOME=/home/nonroot
+
 #===============================================================================
 # ROOTLESS BUILDKIT
 #===============================================================================
@@ -81,7 +102,24 @@ COPY --from=buildkit\
 RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
     --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
     apt-get update &&\
-    apt-get install -y --no-install-recommends uidmap
+    apt-get install -y --no-install-recommends uidmap libcap2-bin
+
+# The kernel accepts a new user namespace's uid_map write from a process that
+# either holds CAP_SYS_ADMIN, or whose euid equals the namespace's owner
+# (user_namespace.c map_write -> file_ns_capable). Debian's newuidmap is built
+# without <sys/capability.h> (no libcap-dev in Debian's build chroot for the
+# uidmap package), so the upstream shadow code path that drops euid to the
+# real uid before writing (lib/idmapping.c, guarded by that header) is
+# compiled out — it writes as euid 0 via the setuid bit and needs
+# CAP_SYS_ADMIN, which no container has by default. Alpine's shadow-uidmap
+# (moby/buildkit:rootless's own newuidmap) has that header and does not hit
+# this: it is built as a plain executable with cap_setuid/cap_setgid FILE
+# CAPABILITIES instead of setuid-root, so it never needs CAP_SYS_ADMIN in the
+# first place. Rebuilding that path here: drop the setuid bit, grant the
+# equivalent file capabilities directly.
+RUN setcap cap_setuid+ep /usr/bin/newuidmap &&\
+    setcap cap_setgid+ep /usr/bin/newgidmap &&\
+    chmod u-s,g-s /usr/bin/newuidmap /usr/bin/newgidmap
 
 # RootlessKit ALWAYS shells out to newuidmap/newgidmap and hard-fails without a
 # subuid range — there is no single-uid fallback path. The vendor image ships
