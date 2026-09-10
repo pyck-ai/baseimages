@@ -141,6 +141,18 @@ on:
           actually delete anything.
         type: boolean
         default: true
+      delete_package:
+        description: >-
+          Operator escape hatch (empty = not requested): DELETE the named
+          container package itself (relative to the repo prefix, e.g.
+          "claude" for baseimages/claude), bypassing classification, every
+          safety rail, the budget, and the planning pass entirely. Refuses
+          unless the package is linked to this repo and is NOT a live
+          bakefile target. Still requires apply=true to actually call
+          DELETE. NOT part of automatic/nightly policy — never set on the
+          schedule trigger.
+        type: string
+        default: ''
 
 # Never cancel a running tidy job — partial cleanup is worse than no cleanup.
 # Do NOT "fix" a stuck run by flipping this to true: cancelling mid-deletion
@@ -208,6 +220,13 @@ jobs:
           # (nginx/rover — see the workflow header comment) the same way
           # APPLY is armed above; it is inert without APPLY=true.
           DELETE_BROKEN_ROOTS: ${{ github.event_name == 'schedule' || inputs.delete_broken_roots == true }}
+          # Operator escape hatch, NOT part of automatic policy — see
+          # tidy.sh's own header comment on --delete-package. Empty on a
+          # schedule run is CORRECT and REQUIRED here (the opposite of
+          # PACKAGES above): this must never be armed by the nightly cron,
+          # only by an explicit manual dispatch, so it stays a bare
+          # `inputs.delete_package` with no event_name branching.
+          DELETE_PACKAGE: ${{ inputs.delete_package }}
         run: .github/scripts/tidy-ghcr/tidy.sh --json tidy-plan.json
 
       - name: Upload tidy plan

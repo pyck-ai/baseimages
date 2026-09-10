@@ -163,13 +163,31 @@
 # DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag (or the
 # APPLY=true environment variable — see below); no other input changes this.
 #
+# --delete-package NAME: an OPERATOR ESCAPE HATCH, not part of automatic
+# policy. It calls DELETE on the container package itself (not a version)
+# directly — bypassing classification, every safety rail, the budget, and
+# the planning pass entirely. When given, this is the ONLY thing the script
+# does: it does not touch the nightly path in any way, does not run
+# alongside --package/--verify-only/etc., and exits as soon as it's done.
+# Two guards run first and are reported before anything is called:
+#   (a) the named package must be linked to <owner>/<repo> (same check
+#       list_packages already applies to the normal enumeration), and
+#   (b) the named package must NOT be a live bakefile target — refusing to
+#       let a typo point this at a currently-published image.
+# Either guard failing refuses to act (exit 2) and says which one failed.
+# Honours --apply/APPLY=true exactly like everything else: without it, this
+# prints the call it WOULD make and exits without calling anything. 204 and
+# 404 (already gone) are both reported as success; anything else is a loud
+# failure with the HTTP status and response body printed verbatim — that
+# status code is the point of running this, so it is never swallowed.
+#
 # Usage:
 #   tidy.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
 #            [--package NAME]... [--keep-last N] [--keep-days N]
 #            [--keep-all-tagged] [--grace-days N] [--keep-tag-regex RE]...
 #            [--max-delete-ratio R] [--budget N]
 #            [--delete-broken-roots] [--apply] [--force] [--verify-only]
-#            [--json FILE]
+#            [--delete-package NAME] [--json FILE]
 #
 # Backs: tidy-ghcr.yml, job `prune`, step "Prune GHCR packages". This script
 # doubles as the workflow entry point (the former thin wrapper script has
@@ -185,6 +203,9 @@
 #   BUDGET              - default for --budget
 #   KEEP_ALL_TAGGED     - "true" to enable --keep-all-tagged
 #   DELETE_BROKEN_ROOTS - "true" to enable --delete-broken-roots
+#   DELETE_PACKAGE      - default for --delete-package; empty means "not
+#                         requested" (the nightly schedule must never set
+#                         this — it is an operator-only escape hatch)
 #   OWNER               - default for --owner
 #   REPO                - default for --repo
 #   REPO_PREFIX         - default for --repo-prefix
@@ -293,6 +314,7 @@ APPLY=0
 FORCE=0
 VERIFY_ONLY=0
 JSON_OUT=""
+DELETE_PACKAGE="${DELETE_PACKAGE:-}"
 
 usage() {
   cat <<'EOF'
@@ -302,7 +324,7 @@ Usage: tidy.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
                       [--keep-tag-regex RE]... [--max-delete-ratio R]
                       [--budget N]
                       [--delete-broken-roots] [--apply] [--force]
-                      [--verify-only] [--json FILE]
+                      [--verify-only] [--delete-package NAME] [--json FILE]
 
 Reachability-safe prune of this repo's GHCR container packages. See the
 header comment in this script for the full model. DRY RUN IS THE DEFAULT.
@@ -362,6 +384,16 @@ Options:
                         corruption, never as a regression, and does not
                         affect the exit code (still 0 unless an operational
                         failure occurs, then 2).
+  --delete-package NAME Operator escape hatch: DELETE the named container
+                        package itself (not a version), bypassing
+                        classification, every safety rail, the budget, and
+                        the planning pass entirely. Refuses unless the
+                        package is linked to <owner>/<repo> and is NOT a
+                        live bakefile target. Honours --apply exactly like
+                        everything else (dry-run prints the call it would
+                        make). When given, this is the only thing the
+                        script does; see the header comment for the full
+                        contract. NOT part of automatic/nightly policy.
   --json FILE           Write the full machine-readable plan to FILE
   -h, --help            Show this help and exit
 
@@ -443,6 +475,10 @@ while [ $# -gt 0 ]; do
     --verify-only)
       VERIFY_ONLY=1
       shift
+      ;;
+    --delete-package)
+      DELETE_PACKAGE="${2:?--delete-package requires a value}"
+      shift 2
       ;;
     --json)
       JSON_OUT="${2:?--json requires a value}"
@@ -1357,6 +1393,76 @@ write_plan_json() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+# --delete-package: operator escape hatch (see header comment). This does
+# ONLY this, then exits — it must never fall through into the nightly
+# discover/classify/plan/apply path below, regardless of --apply, --package,
+# --verify-only, or any other flag also given alongside it.
+if [ -n "$DELETE_PACKAGE" ]; then
+  DP_PKG_NAME="${REPO_PREFIX}/${DELETE_PACKAGE}"
+  DP_ENC=$(jq -rn --arg s "$DP_PKG_NAME" '$s|@uri')
+
+  log_info "--delete-package ${DELETE_PACKAGE}: checking guards before acting on ${DP_PKG_NAME} ..."
+
+  # Guard (a): the package must be linked to this repo. Reuses the same
+  # enumeration list_packages already builds for the normal path, so this
+  # guard can never see a package the nightly run itself wouldn't see.
+  log_info "discovering packages linked to ${OWNER}/${REPO} with prefix ${REPO_PREFIX}/ ..."
+  if ! list_packages; then
+    report_enum_failure "$LAST_API_STATUS"
+    exit 2
+  fi
+  if ! jq -e --arg name "$DP_PKG_NAME" 'select(.name == $name)' "$WORKDIR/packages.jsonl" >/dev/null 2>&1; then
+    log_err "--delete-package ${DELETE_PACKAGE}: GUARD (a) FAILED — '${DP_PKG_NAME}' is not linked to ${OWNER}/${REPO} (or does not exist). Refusing to act."
+    exit 2
+  fi
+  log_info "--delete-package ${DELETE_PACKAGE}: GUARD (a) PASSED — package is linked to ${OWNER}/${REPO}."
+
+  # Guard (b): the package must NOT be a live bakefile target. An operator
+  # should not be able to point this at a currently-published image by typo.
+  log_info "discovering live images from the bakefile ..."
+  DP_LIVE_IMAGES_FILE="$WORKDIR/live-images.txt"
+  if ! discover_live_images > "$DP_LIVE_IMAGES_FILE"; then
+    log_err "--delete-package ${DELETE_PACKAGE}: failed to run 'docker buildx bake --print' against $REPO_ROOT"
+    exit 2
+  fi
+  if grep -qxF "$DELETE_PACKAGE" "$DP_LIVE_IMAGES_FILE"; then
+    log_err "--delete-package ${DELETE_PACKAGE}: GUARD (b) FAILED — '${DELETE_PACKAGE}' IS a live bakefile target. Refusing to act; this flag must not be pointed at a live image."
+    exit 2
+  fi
+  log_info "--delete-package ${DELETE_PACKAGE}: GUARD (b) PASSED — not present in the bakefile."
+
+  DP_URL="https://api.github.com/orgs/${OWNER}/packages/container/${DP_ENC}"
+
+  if [ "$APPLY" -ne 1 ]; then
+    echo "DRY RUN: would DELETE ${DP_URL} (pass --apply, or APPLY=true, to actually call this)"
+    exit 0
+  fi
+
+  log_warn "--delete-package ${DELETE_PACKAGE}: both guards passed and --apply is set — calling DELETE ${DP_URL} ..."
+  DP_BODY="$WORKDIR/delete-package-body.txt"
+  DP_HEADERS="$WORKDIR/delete-package-headers.txt"
+  DP_STATUS=$(request_with_retry "$DP_URL" "$GITHUB_ACCEPT" "Authorization: Bearer ${GH_TOKEN_VALUE}" "$DP_BODY" "$DP_HEADERS" DELETE)
+
+  case "$DP_STATUS" in
+    204)
+      log_info "--delete-package ${DELETE_PACKAGE}: DELETE returned 204 — package removed."
+      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP 204 (deleted)"
+      exit 0
+      ;;
+    404)
+      log_info "--delete-package ${DELETE_PACKAGE}: DELETE returned 404 — already gone (treated as success)."
+      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP 404 (already gone)"
+      exit 0
+      ;;
+    *)
+      log_err "--delete-package ${DELETE_PACKAGE}: DELETE returned unexpected HTTP ${DP_STATUS}. Response body:"
+      cat "$DP_BODY" >&2
+      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP ${DP_STATUS} (FAILED — see response body above)"
+      exit 1
+      ;;
+  esac
+fi
 
 log_info "discovering packages linked to ${OWNER}/${REPO} with prefix ${REPO_PREFIX}/ ..."
 if ! list_packages; then
