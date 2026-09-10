@@ -9,7 +9,9 @@
 # separate UNTAGGED package versions. Deleting one corrupts the tagged index
 # that references it (verified live; see vlaurin/action-ghcr-prune#76).
 #
-# THE MODEL THIS SCRIPT IMPLEMENTS INSTEAD (two phases):
+# THE MODEL THIS SCRIPT IMPLEMENTS INSTEAD (two phases, ONE POLICY for every
+# package regardless of class — see RETIREMENT below for the one thing that
+# IS class-dependent):
 #
 #   ROOTS       = versions with >=1 tag
 #   KEEP_ROOTS  = { d in ROOTS : retain(d) }               # phase 1, policy
@@ -21,15 +23,25 @@
 #                 job — see build-images.yml's discover/verify/publish split)
 #   DELETE      = ALL \ (REACHABLE union INFLIGHT)
 #
-# EMPTY-PACKAGE SWEEP: with --apply, after a package's version deletions for
-# this run complete, the package is RE-QUERIED (never inferred from local
-# bookkeeping — the registry is the only authority). If that re-query shows
-# zero versions remaining, the container package itself is deleted (or, if
-# GHCR already auto-removed it, treated as already gone via a 404). This
-# never fires on the planned DELETE count, only on confirmed post-deletion
-# emptiness, so a budget cutoff or an individual version-delete failure mid-
-# package correctly leaves the package (and the sweep) for the next run. In
-# dry-run this is reported as `would delete package ...` with nothing called.
+# RETIREMENT is a separate, PACKAGE-LEVEL decision made BEFORE any of the
+# above ever runs, not a side effect of pruning: if a package's class is
+# `orphan` (target removed from the bakefile — see PACKAGE ENUMERATION
+# below) AND it has no version younger than $ORPHAN_STALE_DAYS days
+# (deliberately its own constant, not tied to --keep-days — see its
+# definition below), the ENTIRE package is removed with one
+# `DELETE /orgs/{owner}/packages/container/{name}` call (delete_package_call
+# — the same helper --delete-package uses) and NO version-level plan is
+# computed for it at all. THIS REPLACES THE OLD DESIGN of pruning an
+# orphan's versions down to zero and then re-querying for emptiness: CI
+# proved (2026-09, see PR #262) that DELETE on the package itself returns
+# 204 even while versions still exist — the earlier HTTP 400 seen deleting a
+# VERSION was specific to that endpoint refusing to remove a package's LAST
+# remaining version, not a download-count restriction — so whole-package
+# removal is one reliable API call and the empty-then-sweep machinery that
+# used to require is gone. This is PERMANENT AND IRREVERSIBLE, logged
+# distinctly from ordinary per-version deletions. In dry-run nothing is
+# called; the per-package planning line says RETIRE and the WOULD RETIRE
+# section previews it.
 #
 # This correctly degenerates for flat-manifest packages: `buildcache`'s
 # tagged versions are plain `application/vnd.oci.image.manifest.v1+json`
@@ -39,6 +51,19 @@
 # retain(d) (phase 1, --keep-all-tagged off — the default, right for
 # published images): true if d carries a tag matching --keep-tag-regex, OR
 # d is among the newest --keep-last roots, OR d is younger than --keep-days.
+# IDENTICAL for live, infra, and orphan packages — an orphan that reaches
+# this point already failed the RETIREMENT staleness check above (it has a
+# version younger than $ORPHAN_STALE_DAYS), so from here on it is pruned
+# exactly like a live package, never by a separate weaker rule.
+#
+# The protected-tag term ($by_tag below) is DIGEST-scoped, not tag-scoped,
+# which is what makes "never delete latest, or whatever shares its sha"
+# free: a tag is an alias for a digest, so protecting the digest `latest`
+# currently points at protects every OTHER alias sharing that same digest
+# too (e.g. rover's single tagged version currently carries `0`, `0.41`,
+# `0.41.0` AND `latest` — one digest, four tags, all protected by
+# protecting the digest once). No enumeration of "every tag that happens to
+# alias latest" is ever needed.
 #
 # retain(d) (--keep-all-tagged on — the right mode for CACHE-LIKE packages
 # such as `buildcache`): true for EVERY tagged root, unconditionally. A
@@ -61,12 +86,16 @@
 #   live    - package name appears as an image in `docker buildx bake --print`
 #   infra   - package name is the buildcache package (build-cache churn,
 #             not a published artifact, but still safe to reachability-prune)
-#   orphan  - neither; processed on every run exactly like live/infra
-#             packages (no flag to remember — safety is rails #1-#4 and
-#             reachability; see the ORPHAN DECAY EXEMPTION comment on rail
-#             #4 in plan_package for how a genuinely stale orphan is
-#             allowed to decay all the way to zero versions, at which
-#             point the empty-package sweep removes the package itself)
+#   orphan  - neither; RETIRED WHOLESALE once stale (see RETIREMENT above),
+#             or pruned by the identical uniform policy as live/infra while
+#             it still has a version younger than $ORPHAN_STALE_DAYS
+#
+# THE BAKEFILE CROSS-CHECK (in Main, right after package enumeration) IS
+# MORE LOAD-BEARING NOW than when this comment was first written: orphan
+# classification now directly triggers an irreversible whole-package
+# DELETE, not merely weaker retention, so a wrong classification is a
+# data-loss bug, not just an over-retention one. It aborts the whole run
+# (exit 2) rather than trust either source if they disagree.
 #
 # This script never assumes a fallback when something can't be verified: an
 # unresolved manifest fails the whole package closed (see the FAIL-CLOSED
@@ -78,7 +107,11 @@
 #      means the script's own logic is broken, not that one package's data
 #      is unusual, so continuing to plan other packages isn't trustworthy.
 #   #2 No version carrying a protected tag (--keep-tag-regex) may appear in
-#      DELETE. This is a PER-PACKAGE skip-and-continue (exit 3 overall, like
+#      DELETE. Applies UNIFORMLY to every package (live, infra, orphan) —
+#      now that retirement (see above) is the only way an orphan's protected
+#      tag is ever removed, this rail is close to a pure invariant of the
+#      policy rather than something an orphan is deliberately allowed to
+#      trip. This is a PER-PACKAGE skip-and-continue (exit 3 overall, like
 #      #4 below), not a whole-run abort: a set-arithmetic bug in one
 #      package's policy computation isn't evidence the other packages are
 #      miscomputed, and a whole-run abort here let one bad package silently
@@ -218,16 +251,16 @@
 #
 # Exit codes:
 #   0  nothing to do / dry run clean / --verify-only found no broken tags
-#      (or only PRE-EXISTING broken tags — see VERIFICATION above). A rail
-#      #4 trip on a never-tagged stale orphan (EXPECTED STEADY STATE — see
-#      M4 in plan_package) is reported but alone does NOT prevent exit 0.
-#   1  completed with some delete failures (--apply only)
+#      (or only PRE-EXISTING broken tags — see VERIFICATION above). A
+#      package being RETIRED (see RETIREMENT above) is reported but alone
+#      does NOT prevent exit 0.
+#   1  completed with some delete failures (--apply only); this also covers
+#      a failed retirement package-delete call (see RETIREMENT above)
 #   2  operational failure (no token, network error, jq/docker missing, ...)
 #   3  a safety-critical condition: rail #1 tripped (whole run aborted,
 #      nothing deleted — the only rail that still aborts the whole run), OR
 #      rail #2/#4 tripped GENUINELY for at least one package (that package
-#      skipped, others still processed — this excludes the EXPECTED STEADY
-#      STATE rail #4 case above), OR post-apply verification found a
+#      skipped, others still processed), OR post-apply verification found a
 #      REGRESSION — a tag that was healthy immediately before this run's
 #      deletions and is broken now (pre-existing corruption alone
 #      never trips this; see VERIFICATION above)
@@ -288,10 +321,12 @@ if [ -n "${PACKAGES:-}" ]; then
 fi
 KEEP_LAST=10
 KEEP_DAYS=30
-# Threshold for the orphan --max-delete-ratio exemption (rail #4, see
-# plan_package). Deliberately a fixed constant, NOT tied to --keep-days:
-# an operator retuning --keep-days for the retention policy must not
-# accidentally re-arm or disarm this separate safety gate.
+# Threshold for RETIREMENT (see the header comment): an orphan package with
+# no version younger than this many days is removed WHOLESALE via a single
+# package-delete call, no version-level plan computed at all. Deliberately
+# a fixed constant, NOT tied to --keep-days: an operator retuning
+# --keep-days for the pruning policy must not accidentally change when a
+# stale orphan is irreversibly retired.
 ORPHAN_STALE_DAYS=30
 KEEP_ALL_TAGGED=0
 [ "$KEEP_ALL_TAGGED_FROM_ENV" = "true" ] && KEEP_ALL_TAGGED=1
@@ -341,11 +376,14 @@ Options:
   --keep-last N         Keep the N most recently created tagged roots per
                         package, regardless of age (default: 10)
   --keep-days N         Keep tagged roots created within the last N days
-                        (default: 30). Applies to packages whose target is
-                        still in the bakefile; for orphan packages (target
-                        removed from the bakefile) this is the ONLY
-                        retention rule — --keep-last and --keep-tag-regex
-                        do not apply, so an orphan's tags decay too.
+                        (default: 30). Applies IDENTICALLY to every
+                        package — live, infra, and orphan alike. An orphan
+                        package is never pruned by a weaker rule than this:
+                        it is instead RETIRED WHOLESALE (a single
+                        package-delete, see the header comment) once it has
+                        no version younger than the separate, fixed
+                        orphan-staleness threshold; short of that, it is
+                        pruned by this exact same rule as a live package.
   --keep-all-tagged     Keep EVERY tagged root regardless of age or count,
                         ignoring --keep-last/--keep-days/--keep-tag-regex.
                         Use for cache-like packages (e.g. buildcache) whose
@@ -399,15 +437,15 @@ Options:
 
 Exit codes:
   0  nothing to do / dry run clean / --verify-only found no broken tags
-     (or only PRE-EXISTING ones). A rail #4 trip on a never-tagged stale
-     orphan (EXPECTED STEADY STATE) is reported but doesn't prevent this.
-  1  completed with some delete failures (--apply only)
+     (or only PRE-EXISTING ones). A package being RETIRED is reported but
+     doesn't prevent this.
+  1  completed with some delete failures (--apply only), including a
+     failed retirement package-delete call
   2  operational failure (no token, network error, jq/docker missing, ...)
   3  a safety-critical condition: rail #1 tripped (whole run aborted,
      nothing deleted — the only rail that still aborts the whole run), OR
      rail #2/#4 tripped GENUINELY for at least one package (that package
-     skipped, others still processed — excludes the EXPECTED STEADY STATE
-     rail #4 case above), OR post-apply verification found a
+     skipped, others still processed), OR post-apply verification found a
      REGRESSION (a tag healthy immediately before this run's
      deletions and broken now — pre-existing corruption alone never trips
      this)
@@ -616,6 +654,47 @@ request_with_retry() {
   done
 
   printf '%s' "$status"
+}
+
+# delete_package_call PKG_NAME -> calls
+# `DELETE /orgs/{OWNER}/packages/container/{PKG_NAME}` via request_with_retry
+# (inheriting its retry/backoff). Treats 204 (deleted) and 404 (already
+# gone) as success and prints a DELETE_PACKAGE_RESULT line for each; any
+# other status is a loud failure with the HTTP status and response body
+# printed verbatim (never swallowed — that status code is the whole point
+# of calling this). Returns 0 on success, 1 on failure. Does NOT check
+# --apply itself: both call sites (the --delete-package escape hatch, and
+# the RETIREMENT path in Main) gate that themselves before calling this.
+delete_package_call() {
+  local pkg_name="$1"
+  local enc url body headers status
+  enc=$(jq -rn --arg s "$pkg_name" '$s|@uri')
+  url="https://api.github.com/orgs/${OWNER}/packages/container/${enc}"
+  body="$(mktemp "$WORKDIR/delpkg-body.XXXXXX")"
+  headers="$(mktemp "$WORKDIR/delpkg-headers.XXXXXX")"
+  status=$(request_with_retry "$url" "$GITHUB_ACCEPT" "Authorization: Bearer ${GH_TOKEN_VALUE}" "$body" "$headers" DELETE)
+
+  case "$status" in
+    204)
+      log_info "DELETE ${pkg_name}: HTTP 204 (package removed)."
+      echo "DELETE_PACKAGE_RESULT: ${pkg_name} -> HTTP 204 (deleted)"
+      rm -f "$body" "$headers"
+      return 0
+      ;;
+    404)
+      log_info "DELETE ${pkg_name}: HTTP 404 (already gone; treated as success)."
+      echo "DELETE_PACKAGE_RESULT: ${pkg_name} -> HTTP 404 (already gone)"
+      rm -f "$body" "$headers"
+      return 0
+      ;;
+    *)
+      log_err "DELETE ${pkg_name}: unexpected HTTP ${status}. Response body:"
+      cat "$body" >&2
+      echo "DELETE_PACKAGE_RESULT: ${pkg_name} -> HTTP ${status} (FAILED — see response body above)"
+      rm -f "$body" "$headers"
+      return 1
+      ;;
+  esac
 }
 
 # get_registry_token PKG -> prints bearer token on stdout, or empty on failure.
@@ -888,10 +967,10 @@ classify_root() {
 #   4 safety rail #4 tripped (delete-ratio), a GENUINE trip; this package
 #     skipped, run continues, contributes to a non-zero exit
 #   5 safety rail #2 tripped (protected tag in DELETE); this package skipped, run continues
-#   6 safety rail #4 tripped but is EXPECTED STEADY STATE (never-tagged
-#     orphan correctly protected from whole-package deletion, see M4);
-#     this package skipped, run continues, does NOT contribute to a
-#     non-zero exit
+#   7 RETIREMENT: this package is a stale orphan (see the header comment) —
+#     no version-level plan was computed at all; the caller queues it for a
+#     single package-delete instead. Does NOT contribute to a non-zero exit
+#     on its own (a failed retirement delete does, via DELETE_FAILURES).
 plan_package() {
   local image="$1" class="$2"
   local pkg_name="${REPO_PREFIX}/${image}"
@@ -909,6 +988,37 @@ plan_package() {
 
   local total
   total=$(wc -l < "$versions_file" | tr -d ' ')
+
+  # --- RETIREMENT: a package-level decision, entirely separate from and
+  # PRIOR TO pruning — see the header comment for the full rationale. An
+  # orphan with no version younger than $ORPHAN_STALE_DAYS is retired
+  # WHOLESALE here (no roots/reachability/DELETE ever computed for it) and
+  # the caller (Main) performs the single package-delete call, gated on
+  # --apply exactly like everything else. total == 0 is treated as
+  # trivially stale (nothing to check an age against, nothing to protect
+  # by waiting) rather than falling through to the total==0 branch below.
+  if [ "$class" = "orphan" ]; then
+    local retire_age_days retire_is_stale
+    if [ "$total" -eq 0 ]; then
+      retire_is_stale=1
+      retire_age_days="n/a"
+    else
+      retire_age_days=$(jq -rs --argjson now "$NOW_EPOCH" '
+        def age_days: ($now - (.created_at | fromdateiso8601)) / 86400;
+        map(age_days) | min' "$versions_file")
+      retire_is_stale=$(awk -v a="$retire_age_days" -v d="$ORPHAN_STALE_DAYS" 'BEGIN { print (a >= d) ? 1 : 0 }')
+      retire_age_days=$(awk -v a="$retire_age_days" 'BEGIN { printf "%.1f", a }')
+    fi
+    if [ "$retire_is_stale" -eq 1 ]; then
+      log_warn "RETIRE: ${pkg_name} — orphan, ${total} version(s), no version younger than ${ORPHAN_STALE_DAYS}d (newest is ${retire_age_days} day(s) old) — will be removed as a single whole-package delete, not pruned version-by-version. PERMANENT AND IRREVERSIBLE."
+      echo "${image}  ${class}  total=${total}  RETIRE (whole-package delete — stale orphan, newest ${retire_age_days}d)"
+      jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" --argjson total "$total" \
+        '{image: $image, package: $pkg, class: $class, total: $total, retire: true}' \
+        > "$WORKDIR/plan-${image}.json"
+      return 7
+    fi
+  fi
+
   if [ "$total" -eq 0 ]; then
     echo "${image}  ${class}  total=0  roots=0  reachable=0  inflight=0  DELETE=0"
     jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
@@ -927,31 +1037,19 @@ plan_package() {
   local tag_regex_json
   tag_regex_json=$(printf '%s\n' "${KEEP_TAG_REGEXES[@]}" | jq -R . | jq -s .)
 
-  # KEEP_ROOTS: see the --keep-all-tagged header comment for the two policies
-  # below "in_bakefile". IN-BAKEFILE (class != orphan, i.e. the image's
-  # target still exists in the current bakefile — a live image, or infra
-  # like buildcache) uses the full policy: protected tag OR newest
-  # --keep-last OR younger than --keep-days. ORPHAN (target removed from
-  # the bakefile) uses --keep-days ALONE: no --keep-last floor (an orphan
-  # gets no "keep the newest N regardless of age" grace), and — the
-  # subtle part — no protected-tag floor either. $by_tag would otherwise
-  # pin an orphan's `latest`/`alpine`/`debian` tag forever, so the package
-  # would never fully decay even though nothing builds it anymore. An
-  # orphan's tags are allowed to age out like everything else in it. This
-  # is a POLICY-level use of the protected-tag regex; it is unrelated to
-  # safety rail #2 below, which independently forbids a protected tag from
-  # landing in DELETE for an in-bakefile package (see that rail's comment).
-  local in_bakefile=1
-  [ "$class" = "orphan" ] && in_bakefile=0
-
+  # KEEP_ROOTS: see the --keep-all-tagged header comment. IDENTICAL policy
+  # for every class (live, infra, orphan): protected tag ($by_tag, digest-
+  # scoped — see the header comment for why that alone covers every alias
+  # of `latest`) OR newest --keep-last OR younger than --keep-days. No
+  # class-conditional branch here: an orphan that reaches this point
+  # already failed the RETIREMENT staleness check above (it has a version
+  # younger than $ORPHAN_STALE_DAYS), so it is pruned exactly like a live
+  # package — there is no separate, weaker "let an orphan's tags decay"
+  # rule anymore. Safety rail #2 below independently re-checks that this
+  # policy never actually drops a protected tag into DELETE.
   local keep_roots_file="$WORKDIR/keeproots-${image}.txt"
   if [ "$KEEP_ALL_TAGGED" -eq 1 ]; then
     jq -r '.digest' "$roots_file" | sort -u > "$keep_roots_file"
-  elif [ "$in_bakefile" -eq 0 ]; then
-    jq -rs --argjson keepdays "$KEEP_DAYS" --argjson now "$NOW_EPOCH" '
-      def age_days($rec): ($now - ($rec.created_at | fromdateiso8601)) / 86400;
-      (. as $all | ($all | map(select(age_days(.) < $keepdays)) | map(.digest)) as $by_age | $by_age | unique | .[])
-      ' "$roots_file" > "$keep_roots_file"
   else
     jq -rs --argjson regexes "$tag_regex_json" --argjson keeplast "$KEEP_LAST" \
       --argjson keepdays "$KEEP_DAYS" --argjson now "$NOW_EPOCH" '
@@ -1123,20 +1221,17 @@ plan_package() {
   fi
 
   # --- Safety rail #2: no protected-tag version may appear in DELETE.
-  # PER-PACKAGE skip (exit 3 overall, like rail #4 below), not a whole-run
+  # Applies UNIFORMLY to every package now (live, infra, orphan): with the
+  # orphan-specific $by_tag drop removed from the KEEP_ROOTS policy (see its
+  # comment above), a protected tag landing in DELETE is never the intended
+  # outcome for ANY class — this is close to a pure invariant of the policy
+  # rather than a bug detector that must stay silent for one class. PER-
+  # PACKAGE skip (exit 3 overall, like rail #4 below), not a whole-run
   # abort: a set-arithmetic bug in one package's policy computation is not
   # evidence the other packages are miscomputed, and a whole-run abort here
   # let one bad package silently zero out an entire scheduled run,
   # indefinitely. Still loud — still a bug detector — just scoped to the
   # package it actually concerns.
-  #
-  # IN-BAKEFILE ONLY: this rail enforces that the policy above never
-  # actually drops a protected tag for a live/infra package (a bug detector
-  # for rail #2's own policy counterpart, $by_tag). For an orphan, dropping
-  # $by_tag from the policy is deliberate (see the KEEP_ROOTS comment above)
-  # so a protected tag landing in DELETE there is the intended outcome, not
-  # a bug — the rail must not fire for orphans, or the decay design it
-  # exists to protect would never trip and instead permanently deadlock.
   #
   # EXCLUDES confirmed-broken roots (--delete-broken-roots, see its header
   # comment): classify_root marks a root `broken` only after independently
@@ -1148,102 +1243,39 @@ plan_package() {
   # roots / rover's 1 legitimately carry latest/alpine/debian, and this rail
   # would otherwise forbid removing exactly what the remediation exists to
   # remove.
-  if [ "$in_bakefile" -eq 1 ]; then
-    local broken_digests_json
-    broken_digests_json=$(jq -Rn '[inputs]' <(jq -r '.root' "$broken_roots_file" 2>/dev/null))
-    local protected_in_delete
-    protected_in_delete=$(jq -c --argjson regexes "$tag_regex_json" --argjson broken "$broken_digests_json" '
-      select((.tags // []) | any(. as $t | $regexes | any(. as $re | $t | test($re)))) |
-      .digest as $d | select(($broken | index($d)) == null)' "$delete_file" | wc -l | tr -d ' ')
-    if [ "$protected_in_delete" -gt 0 ]; then
-      log_err "SAFETY RAIL #2 TRIPPED for ${pkg_name}: ${protected_in_delete} version(s) carrying a protected tag are in DELETE (not explained by a confirmed-broken root) — skipping this package (other packages still processed)"
-      echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}  (SKIPPED: protected tag in DELETE — safety rail #2)"
-      jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
-        --argjson total "$total" --argjson roots "$roots_total" --argjson keep_roots "$keep_roots_count" \
-        --argjson reachable "$reachable_count" --argjson inflight "$inflight_count" --argjson delete_count "$delete_count" \
-        '{image: $image, package: $pkg, class: $class, total: $total, roots: $roots, keep_roots: $keep_roots,
-          reachable: $reachable, inflight: $inflight, delete_count: $delete_count,
-          skipped: true, error: "protected tag in DELETE (safety rail #2)"}' \
-        > "$WORKDIR/plan-${image}.json"
-      return 5
-    fi
+  local broken_digests_json
+  broken_digests_json=$(jq -Rn '[inputs]' <(jq -r '.root' "$broken_roots_file" 2>/dev/null))
+  local protected_in_delete
+  protected_in_delete=$(jq -c --argjson regexes "$tag_regex_json" --argjson broken "$broken_digests_json" '
+    select((.tags // []) | any(. as $t | $regexes | any(. as $re | $t | test($re)))) |
+    .digest as $d | select(($broken | index($d)) == null)' "$delete_file" | wc -l | tr -d ' ')
+  if [ "$protected_in_delete" -gt 0 ]; then
+    log_err "SAFETY RAIL #2 TRIPPED for ${pkg_name}: ${protected_in_delete} version(s) carrying a protected tag are in DELETE (not explained by a confirmed-broken root) — skipping this package (other packages still processed)"
+    echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}  (SKIPPED: protected tag in DELETE — safety rail #2)"
+    jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
+      --argjson total "$total" --argjson roots "$roots_total" --argjson keep_roots "$keep_roots_count" \
+      --argjson reachable "$reachable_count" --argjson inflight "$inflight_count" --argjson delete_count "$delete_count" \
+      '{image: $image, package: $pkg, class: $class, total: $total, roots: $roots, keep_roots: $keep_roots,
+        reachable: $reachable, inflight: $inflight, delete_count: $delete_count,
+        skipped: true, error: "protected tag in DELETE (safety rail #2)"}' \
+      > "$WORKDIR/plan-${image}.json"
+    return 5
   fi
 
-  # --- Safety rail #4: DELETE must not exceed --max-delete-ratio, unless --force. Per-package skip. ---
-  #
-  # ORPHAN DECAY EXEMPTION: an orphan (target absent from the bakefile —
-  # see the KEEP_ROOTS comment above) decaying to ~100% DELETE is this
-  # design's intended terminal state, not a classification bug, so rail #4
-  # must not permanently block it the way it blocks a live package that
-  # suddenly wants everything deleted. The exemption requires ALL THREE:
-  # class == orphan, zero versions younger than ORPHAN_STALE_DAYS
-  # (staleness is the real discriminator, not the orphan label alone — a
-  # LIVE image that got misclassified as orphan is still rebuilt daily and
-  # therefore always has a version younger than ORPHAN_STALE_DAYS, so rail
-  # #4 still stops it even under this exemption), AND roots_total > 0.
-  #
-  # THE roots_total > 0 REQUIREMENT (M4): a package that has NEVER carried
-  # a tag is unreleased work-in-progress, not an abandoned published
-  # image, and must never be whole-deleted by this exemption. Confirmed
-  # live exposure: `runner` has 20 versions pushed by digest from a WIP
-  # branch and ZERO tagged roots; its target isn't in the bakefile so it
-  # classifies orphan, and with roots_total == 0 it would otherwise
-  # qualify for whole-package deletion the moment that branch goes quiet
-  # for ORPHAN_STALE_DAYS — unattended, with no human ever having approved
-  # its removal. Every OTHER path to `orphan` requires a reviewed commit
-  # that deleted `docker/<name>/`; the never-tagged case is the one path a
-  # human never approved, which is exactly why it must not decay to zero
-  # like a normal orphan. See the rail #4 trip below for what happens to
-  # this case instead (reported, but does not redden the run).
-  #
-  # Never combined with --force's blanket override semantics — this is a
-  # narrow, provable condition, not a bypass switch.
+  # --- Safety rail #4: DELETE must not exceed --max-delete-ratio, unless
+  # --force. Per-package skip. Applies UNIFORMLY to every package now —
+  # there is no orphan exemption: an orphan that would trip this by
+  # decaying to ~100% DELETE is retired WHOLESALE before it ever reaches
+  # this rail (see RETIREMENT in the header comment and the retirement
+  # check near the top of this function), so any package that still
+  # reaches rail #4 is either not an orphan, or an orphan with a version
+  # younger than $ORPHAN_STALE_DAYS — i.e. genuinely still changing, not a
+  # package whose decay this design intends to permit.
   local threshold_hit ratio_pct
   threshold_hit=$(awk -v d="$delete_count" -v t="$total" -v r="$MAX_DELETE_RATIO" 'BEGIN { print (t > 0 && d > r * t) ? 1 : 0 }')
   ratio_pct=$(awk -v d="$delete_count" -v t="$total" 'BEGIN { if (t > 0) printf "%.1f", (d / t) * 100; else print "0.0" }')
 
-  local orphan_exempt=0
-  local never_tagged_stale_orphan=0
-  if [ "$threshold_hit" -eq 1 ] && [ "$class" = "orphan" ]; then
-    local youngest_age_days
-    youngest_age_days=$(jq -rs --argjson now "$NOW_EPOCH" '
-      def age_days: ($now - (.created_at | fromdateiso8601)) / 86400;
-      map(age_days) | min' "$versions_file")
-    local is_stale
-    is_stale=$(awk -v a="$youngest_age_days" -v d="$ORPHAN_STALE_DAYS" 'BEGIN { print (a >= d) ? 1 : 0 }')
-    if [ "$is_stale" -eq 1 ]; then
-      local youngest_age_fmt
-      youngest_age_fmt=$(awk -v a="$youngest_age_days" 'BEGIN { printf "%.1f", a }')
-      if [ "$roots_total" -gt 0 ]; then
-        orphan_exempt=1
-        log_warn "ORPHAN DECAY EXEMPTION: ${pkg_name} — ${total} version(s), newest is ${youngest_age_fmt} day(s) old (>= ${ORPHAN_STALE_DAYS}d staleness threshold, independent of --keep-days); exempting from --max-delete-ratio (${MAX_DELETE_RATIO}, this package is at ${ratio_pct}%) — this is a PERMANENT WHOLE-PACKAGE DELETION of ${delete_count}/${total} version(s)"
-      else
-        never_tagged_stale_orphan=1
-        log_warn "NEVER-TAGGED ORPHAN PROTECTED: ${pkg_name} — ${total} version(s), ZERO tagged roots, newest is ${youngest_age_fmt} day(s) old (>= ${ORPHAN_STALE_DAYS}d) — NOT granted the orphan decay exemption and NOT whole-deleted, because a package that has never carried a tag is unreleased work-in-progress, not an abandoned published image (see M4/roots_total in the rail #4 comment above). This rail #4 trip is EXPECTED STEADY STATE, reported below, and does not redden the run."
-      fi
-    fi
-  fi
-
-  if [ "$threshold_hit" -eq 1 ] && [ "$FORCE" -ne 1 ] && [ "$orphan_exempt" -ne 1 ]; then
-    if [ "$never_tagged_stale_orphan" -eq 1 ]; then
-      # EXPECTED STEADY STATE, not a genuine trip: distinct return code (6)
-      # so the caller can report this without contributing to a non-zero
-      # exit — see Change 2. Any OTHER rail #4 trip (notably a LIVE
-      # package exceeding the ratio) still uses return 4 below and still
-      # reddens the run; this branch is deliberately narrow to that one
-      # discriminator (class == orphan AND stale AND roots_total == 0),
-      # not a blanket silence of rail #4.
-      echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}  (PROTECTED: never-tagged orphan, exceeds --max-delete-ratio ${MAX_DELETE_RATIO} at ${ratio_pct}% — expected steady state, not an alarm)"
-      jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
-        --argjson total "$total" --argjson roots "$roots_total" --argjson keep_roots "$keep_roots_count" \
-        --argjson reachable "$reachable_count" --argjson inflight "$inflight_count" --argjson delete_count "$delete_count" \
-        --arg ratio_pct "$ratio_pct" \
-        '{image: $image, package: $pkg, class: $class, total: $total, roots: $roots, keep_roots: $keep_roots,
-          reachable: $reachable, inflight: $inflight, delete_count: $delete_count, delete_ratio_pct: $ratio_pct,
-          skipped: true, error: "never-tagged orphan protected from whole-package deletion (rail #4 expected steady state)"}' \
-        > "$WORKDIR/plan-${image}.json"
-      return 6
-    fi
+  if [ "$threshold_hit" -eq 1 ] && [ "$FORCE" -ne 1 ]; then
     log_err "SAFETY RAIL #4 TRIPPED for ${pkg_name}: DELETE (${delete_count}/${total} = ${ratio_pct}%) exceeds --max-delete-ratio (${MAX_DELETE_RATIO}); skipping this package (pass --force to include it anyway)"
     echo "${image}  ${class}  total=${total}  roots=${roots_total}  reachable=${reachable_count}  inflight=${inflight_count}  DELETE=${delete_count}  (SKIPPED: exceeds --max-delete-ratio ${MAX_DELETE_RATIO}, ${ratio_pct}%)"
     jq -n --arg image "$image" --arg pkg "$pkg_name" --arg class "$class" \
@@ -1282,7 +1314,7 @@ plan_package() {
 # bash_array_to_json_array ELEM... -> prints a JSON array of the given
 # arguments (each on its own line via printf, so no delimiter-splitting
 # surprises), or "[]" for zero arguments. Used to embed bash-side tracking
-# arrays (APPLIED_PACKAGES, EMPTIED_PACKAGES, ...) into write_plan_json's
+# arrays (APPLIED_PACKAGES, RETIRED_PACKAGES, ...) into write_plan_json's
 # output.
 bash_array_to_json_array() {
   if [ "$#" -eq 0 ]; then
@@ -1306,7 +1338,7 @@ bash_array_to_json_array() {
 # job either — a silent, total loss of the record. With --apply, a SECOND
 # call after the apply phase completes rewrites the same file with a
 # `phase: "final"` marker and an `outcome` object (actual_deleted,
-# remaining, delete_failures, and which packages were applied/emptied/
+# remaining, delete_failures, and which packages were applied/retired/
 # regressed/pre-existing-corrupt) — a partial or interrupted apply still
 # leaves the pre-apply version as the most recent successfully-written
 # state, upgraded to the full outcome only once apply genuinely finishes.
@@ -1351,14 +1383,14 @@ write_plan_json() {
       --argjson actual_deleted "$ACTUAL_DELETED" --argjson remaining "$REMAINING" \
       --argjson delete_failures "$DELETE_FAILURES" \
       --argjson applied_packages "$(bash_array_to_json_array "${APPLIED_PACKAGES[@]}")" \
-      --argjson emptied_packages "$(bash_array_to_json_array "${EMPTIED_PACKAGES[@]}")" \
+      --argjson retired_packages "$(bash_array_to_json_array "${RETIRED_PACKAGES[@]}")" \
       --argjson regression_packages "$(bash_array_to_json_array "${REGRESSION_PACKAGES[@]}")" \
       --argjson preexisting_corruption_packages "$(bash_array_to_json_array "${PREEXISTING_CORRUPTION_PACKAGES[@]}")" \
       '{phase: "final", budget: $budget, apply: $apply, max_delete_ratio: $max_delete_ratio,
         packages: $packages[0],
         outcome: {actual_deleted: $actual_deleted, remaining: $remaining,
           delete_failures: $delete_failures, applied_packages: $applied_packages,
-          emptied_packages: $emptied_packages, regression_packages: $regression_packages,
+          retired_packages: $retired_packages, regression_packages: $regression_packages,
           preexisting_corruption_packages: $preexisting_corruption_packages}}' \
       > "$tmp_out"
     jq_rc=$?
@@ -1432,36 +1464,16 @@ if [ -n "$DELETE_PACKAGE" ]; then
   fi
   log_info "--delete-package ${DELETE_PACKAGE}: GUARD (b) PASSED — not present in the bakefile."
 
-  DP_URL="https://api.github.com/orgs/${OWNER}/packages/container/${DP_ENC}"
-
   if [ "$APPLY" -ne 1 ]; then
-    echo "DRY RUN: would DELETE ${DP_URL} (pass --apply, or APPLY=true, to actually call this)"
+    echo "DRY RUN: would DELETE https://api.github.com/orgs/${OWNER}/packages/container/${DP_ENC} (pass --apply, or APPLY=true, to actually call this)"
     exit 0
   fi
 
-  log_warn "--delete-package ${DELETE_PACKAGE}: both guards passed and --apply is set — calling DELETE ${DP_URL} ..."
-  DP_BODY="$WORKDIR/delete-package-body.txt"
-  DP_HEADERS="$WORKDIR/delete-package-headers.txt"
-  DP_STATUS=$(request_with_retry "$DP_URL" "$GITHUB_ACCEPT" "Authorization: Bearer ${GH_TOKEN_VALUE}" "$DP_BODY" "$DP_HEADERS" DELETE)
-
-  case "$DP_STATUS" in
-    204)
-      log_info "--delete-package ${DELETE_PACKAGE}: DELETE returned 204 — package removed."
-      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP 204 (deleted)"
-      exit 0
-      ;;
-    404)
-      log_info "--delete-package ${DELETE_PACKAGE}: DELETE returned 404 — already gone (treated as success)."
-      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP 404 (already gone)"
-      exit 0
-      ;;
-    *)
-      log_err "--delete-package ${DELETE_PACKAGE}: DELETE returned unexpected HTTP ${DP_STATUS}. Response body:"
-      cat "$DP_BODY" >&2
-      echo "DELETE_PACKAGE_RESULT: ${DP_PKG_NAME} -> HTTP ${DP_STATUS} (FAILED — see response body above)"
-      exit 1
-      ;;
-  esac
+  log_warn "--delete-package ${DELETE_PACKAGE}: both guards passed and --apply is set — calling DELETE ${DP_PKG_NAME} ..."
+  if delete_package_call "$DP_PKG_NAME"; then
+    exit 0
+  fi
+  exit 1
 fi
 
 log_info "discovering packages linked to ${OWNER}/${REPO} with prefix ${REPO_PREFIX}/ ..."
@@ -1638,10 +1650,10 @@ ACTUAL_DELETED=0
 SKIPPED_PACKAGES=()
 RATIO_TRIPPED_PACKAGES=()
 PROTECTED_TAG_PACKAGES=()
-NEVER_TAGGED_PROTECTED_PACKAGES=()
 FAILCLOSED_PACKAGES=()
 PROCESSED_PACKAGES=()
 BROKEN_ROOTS_PACKAGES=()
+RETIRING_PACKAGES=()
 
 while IFS=$'\t' read -r image class; do
   [ -z "$image" ] && continue
@@ -1676,12 +1688,14 @@ while IFS=$'\t' read -r image class; do
       PROTECTED_TAG_PACKAGES+=("$image")
       PROTECTED_TAG_TRIPPED=1
       ;;
-    6)
-      # EXPECTED STEADY STATE (never-tagged orphan protected from whole-
-      # package deletion — see M4/Change 1&2). Deliberately does NOT set
-      # any *_TRIPPED flag: this is rail #4 doing exactly its job, not a
-      # signal, so it must not contribute to a non-zero exit.
-      NEVER_TAGGED_PROTECTED_PACKAGES+=("$image")
+    7)
+      # RETIREMENT (see plan_package and the header comment): a stale
+      # orphan, queued here for a single whole-package delete in the Apply
+      # section below (or previewed only, in a dry run). Deliberately does
+      # NOT set any *_TRIPPED flag and does NOT touch TOTAL_DELETE/
+      # TOTAL_PLANNED — there is no version-level plan for this package at
+      # all, so it must not count against either.
+      RETIRING_PACKAGES+=("$image")
       ;;
   esac
 
@@ -1715,16 +1729,36 @@ REMAINING=$((TOTAL_DELETE - EFFECTIVE_DELETE))
 APPLIED_PACKAGES=()
 REGRESSION_PACKAGES=()
 PREEXISTING_CORRUPTION_PACKAGES=()
-EMPTIED_PACKAGES=()
+RETIRED_PACKAGES=()
 
 if [ "$APPLY" -eq 1 ]; then
+  # RETIREMENT: one whole-package DELETE per stale orphan queued by the
+  # planning loop above (see plan_package / return 7). Deliberately NOT
+  # subject to --budget (a single API call per package, unrelated to the
+  # per-version delete budget below) or to safety rail #4 (there is no
+  # version-level plan to compute a ratio against — see the header
+  # comment). A failure here counts toward DELETE_FAILURES exactly like a
+  # failed version delete, so the existing exit-1 path covers it without a
+  # new exit code.
+  if [ "${#RETIRING_PACKAGES[@]}" -gt 0 ]; then
+    echo "=== RETIRING ${#RETIRING_PACKAGES[@]} stale orphan package(s) — whole-package delete, PERMANENT AND IRREVERSIBLE ==="
+    for image in "${RETIRING_PACKAGES[@]}"; do
+      pkg_name="${REPO_PREFIX}/${image}"
+      log_warn "RETIRING ${pkg_name}: orphan, no version younger than ${ORPHAN_STALE_DAYS} day(s) — calling whole-package delete now."
+      if delete_package_call "$pkg_name"; then
+        RETIRED_PACKAGES+=("$image")
+      else
+        DELETE_FAILURES=$((DELETE_FAILURES + 1))
+      fi
+    done
+  fi
+
   BUDGET_LEFT=$BUDGET
   for image in "${PROCESSED_PACKAGES[@]}"; do
     [ "$BUDGET_LEFT" -le 0 ] && break
     pkg_name="${REPO_PREFIX}/${image}"
     enc=$(jq -rn --arg s "$pkg_name" '$s|@uri')
     delete_count=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
-    pkg_total=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
     [ "$delete_count" -eq 0 ] && continue
 
     # Snapshot this package's broken-tag state BEFORE its deletions run, so
@@ -1751,7 +1785,6 @@ if [ "$APPLY" -eq 1 ]; then
     fi
 
     package_deleted=0
-    package_success_count=0
     # Delete TAGGED roots before their UNTAGGED children within this
     # package's DELETE set. Packages-API order between them is otherwise
     # arbitrary (they're typically created seconds apart by the same
@@ -1786,7 +1819,6 @@ if [ "$APPLY" -eq 1 ]; then
         DELETE_FAILURES=$((DELETE_FAILURES + 1))
       else
         package_deleted=1
-        package_success_count=$((package_success_count + 1))
         ACTUAL_DELETED=$((ACTUAL_DELETED + 1))
         log_info "DELETED ${pkg_name} ${digest}"
       fi
@@ -1796,77 +1828,6 @@ if [ "$APPLY" -eq 1 ]; then
 
     if [ "$package_deleted" -eq 1 ]; then
       APPLIED_PACKAGES+=("$image")
-
-      # Empty-package sweep — a permanent, unrecoverable deletion, so it
-      # requires ALL THREE of the following, not just the re-query. The
-      # re-query alone is not enough on its own terms: audit.sh's header in
-      # this repo documents `api.github.com/orgs/.../versions` as a
-      # SECONDARY INDEX THAT GOES STALE, i.e. a written finding that this
-      # exact endpoint can lie — so it is the LAST condition, never the
-      # only one.
-      #   1. delete_count == total: the PLAN intended to empty this
-      #      package (not merely delete some fraction of it).
-      #   2. package_success_count == delete_count: every planned deletion
-      #      for THIS RUN actually succeeded — no budget cutoff mid-
-      #      package, no individual delete failure. This is a real
-      #      per-package counter, not the old package_deleted 0/1 flag
-      #      (which only proved "at least one delete succeeded", far too
-      #      weak a basis for whole-package deletion).
-      #   3. the re-query returns zero versions — the registry, the only
-      #      authority, confirms emptiness. Never inferred from local
-      #      bookkeeping alone (the same class of mistake as a deletion
-      #      counter that reads zero while reporting success).
-      # Any one of these failing correctly leaves the package for a future
-      # run: a budget cutoff or an individual failure fails condition 2
-      # before the re-query ever runs; a stale-index false negative from
-      # the re-query fails condition 3.
-      #
-      # STRUCTURAL PROPERTY, deliberate, not an accident: `d > 0.98*t` is
-      # true for every `d == t` with `t > 0`, so a 100%-of-total plan
-      # ALWAYS trips rail #4 in plan_package. That means this sweep is only
-      # ever REACHABLE for a package that was explicitly let through rail
-      # #4 — via the orphan decay exemption, or --force — never as a side
-      # effect of an ordinary prune. The two rails compose on purpose.
-      if [ "$delete_count" -eq "$pkg_total" ] && [ "$package_success_count" -eq "$delete_count" ]; then
-        remaining_versions_file="$WORKDIR/remaining-${image}.jsonl"
-        if list_versions "$pkg_name" "$remaining_versions_file"; then
-          remaining_count=$(wc -l < "$remaining_versions_file" | tr -d ' ')
-          if [ "$remaining_count" -eq 0 ]; then
-            log_warn "PACKAGE EMPTY: ${pkg_name} has zero versions remaining (re-queried from the registry after this run's deletions, not inferred from the plan) — deleting the package itself"
-            pkg_del_status=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
-              -H "Authorization: Bearer ${GH_TOKEN_VALUE}" \
-              -H "Accept: ${GITHUB_ACCEPT}" \
-              "https://api.github.com/orgs/${OWNER}/packages/container/${enc}")
-            case "$pkg_del_status" in
-              204|200)
-                # We do not yet know, from observation, whether GHCR
-                # auto-removes a container package when its last version is
-                # deleted or leaves an empty shell behind. This branch IS
-                # that observation: the shell was still there, and this
-                # explicit call is what removed it. Logged distinctly on
-                # purpose — this is what tells us the real behaviour.
-                log_warn "PACKAGE DELETED: ${pkg_name} — package-delete endpoint returned ${pkg_del_status}. OBSERVED: GHCR left an empty package shell after the last version was removed; this run's explicit package-delete call is what removed it."
-                EMPTIED_PACKAGES+=("$image")
-                ;;
-              404)
-                # The other branch: GHCR already auto-removed the container
-                # package as soon as its last version went away, so this
-                # call found nothing to delete. Treated as success, not an
-                # error.
-                log_warn "PACKAGE ALREADY GONE: ${pkg_name} — package-delete endpoint returned 404. OBSERVED: GHCR auto-removed the container package when its last version was deleted; no explicit delete was needed (treated as success)."
-                EMPTIED_PACKAGES+=("$image")
-                ;;
-              *)
-                log_warn "failed to delete empty package ${pkg_name} (status ${pkg_del_status}); it is genuinely empty and will be retried on a future run"
-                ;;
-            esac
-          fi
-        else
-          log_warn "could not re-query ${pkg_name} after deletion to check for emptiness; skipping the empty-package sweep for it this run (will be re-checked next run)"
-        fi
-      else
-        log_info "${pkg_name}: skipping empty-package sweep — plan not 100%-of-total (${delete_count}/${pkg_total}) or this run's deletions didn't all succeed (${package_success_count}/${delete_count}); leaving for a future run"
-      fi
     fi
   done
   # REMAINING = versions still needing deletion = TOTAL_DELETE minus the
@@ -1920,7 +1881,7 @@ if [ "$APPLY" -eq 1 ]; then
   # M5: rewrite the plan now that the apply phase (including post-apply
   # verification) has actually finished, with the real OUTCOME — what was
   # attempted, what succeeded, what failed, what remains under budget,
-  # which packages were emptied. Only reached if the apply phase ran to
+  # which packages were retired. Only reached if the apply phase ran to
   # completion; a mid-apply kill leaves the pre-apply write from before
   # the Apply section (above) as the most recent record, which is exactly
   # the point — see write_plan_json's header comment.
@@ -1933,38 +1894,31 @@ fi
 
 echo "---"
 if [ "$APPLY" -eq 1 ]; then
-  echo "deleted ${ACTUAL_DELETED} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining, ${DELETE_FAILURES} failures)"
+  echo "deleted ${ACTUAL_DELETED} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining, ${DELETE_FAILURES} failures); retired ${#RETIRED_PACKAGES[@]} of ${#RETIRING_PACKAGES[@]} stale orphan package(s)"
 else
-  echo "DRY RUN: would delete ${EFFECTIVE_DELETE} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining)"
+  echo "DRY RUN: would delete ${EFFECTIVE_DELETE} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining); would retire ${#RETIRING_PACKAGES[@]} stale orphan package(s)"
 fi
 
-# Empty-package sweep, dry-run preview: a package whose entire version count
-# is planned for deletion would be left empty by --apply's real re-query
-# sweep above. Nothing is called here — this is purely a report, computed
-# from the plan already in hand.
-if [ "$APPLY" -ne 1 ]; then
-  EMPTY_CANDIDATES=()
-  for image in "${PROCESSED_PACKAGES[@]}"; do
-    tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
-    dc=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
-    if [ "$tot" -gt 0 ] && [ "$dc" -eq "$tot" ]; then
-      EMPTY_CANDIDATES+=("$image")
-    fi
-  done
-  if [ "${#EMPTY_CANDIDATES[@]}" -gt 0 ]; then
-    echo ""
-    echo "=== EMPTY-PACKAGE SWEEP (dry run — nothing called) ==="
-    for image in "${EMPTY_CANDIDATES[@]}"; do
-      tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
-      echo "would delete package ${REPO_PREFIX}/${image} (${tot} versions, all planned for deletion)"
-    done
-  fi
-fi
-
-if [ "${#EMPTIED_PACKAGES[@]}" -gt 0 ]; then
+# WOULD RETIRE, dry-run preview: RETIRING_PACKAGES is populated by the
+# planning loop above regardless of --apply (see plan_package / return 7),
+# so this is purely a report of what --apply would do — nothing is called
+# here.
+if [ "$APPLY" -ne 1 ] && [ "${#RETIRING_PACKAGES[@]}" -gt 0 ]; then
   echo ""
-  echo "=== PACKAGES DELETED (emptied by this run's deletions — see the PACKAGE DELETED / PACKAGE ALREADY GONE WARN lines above for which branch GHCR actually took) ==="
-  for image in "${EMPTIED_PACKAGES[@]}"; do
+  echo "=== WOULD RETIRE (dry run — nothing called) ==="
+  echo "Each package below is class=orphan with no version younger than ${ORPHAN_STALE_DAYS} days;"
+  echo "with --apply it is removed ENTIRELY via a single whole-package delete (not pruned"
+  echo "version-by-version). This is permanent and irreversible."
+  for image in "${RETIRING_PACKAGES[@]}"; do
+    tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
+    echo "  would retire ${REPO_PREFIX}/${image} (${tot} version(s))"
+  done
+fi
+
+if [ "${#RETIRED_PACKAGES[@]}" -gt 0 ]; then
+  echo ""
+  echo "=== PACKAGES RETIRED (whole-package delete — permanent, irreversible — see the DELETE_PACKAGE_RESULT lines above) ==="
+  for image in "${RETIRED_PACKAGES[@]}"; do
     echo "  ${REPO_PREFIX}/${image}"
   done
 fi
@@ -1987,22 +1941,6 @@ if [ "${#PROTECTED_TAG_PACKAGES[@]}" -gt 0 ]; then
     dc=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
     tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
     echo "  ${image}: DELETE ${dc}/${tot} — see the SAFETY RAIL #2 TRIPPED ERROR line above for the count"
-  done
-fi
-
-if [ "${#NEVER_TAGGED_PROTECTED_PACKAGES[@]}" -gt 0 ]; then
-  echo ""
-  echo "=== EXPECTED STEADY STATE — never-tagged orphan(s) correctly protected from whole-package deletion (NOT an alarm, does not affect the exit code) ==="
-  echo "Each package below is class=orphan, stale (no version younger than ${ORPHAN_STALE_DAYS} days), and has"
-  echo "ZERO tagged roots. It trips --max-delete-ratio like any other ~100% orphan, but is"
-  echo "deliberately denied the orphan decay exemption (see M4): a package that has never"
-  echo "carried a tag is unreleased work-in-progress pushed by digest from a branch, not an"
-  echo "abandoned published image, and this run correctly refuses to whole-delete it."
-  for image in "${NEVER_TAGGED_PROTECTED_PACKAGES[@]}"; do
-    dc=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
-    tot=$(jq -r '.total' "$WORKDIR/plan-${image}.json")
-    ratio_pct=$(jq -r '.delete_ratio_pct' "$WORKDIR/plan-${image}.json")
-    echo "  ${image}: DELETE ${dc}/${tot} = ${ratio_pct}% — protected, not touched"
   done
 fi
 
