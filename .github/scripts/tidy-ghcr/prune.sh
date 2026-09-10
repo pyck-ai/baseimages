@@ -113,9 +113,26 @@
 # every currently-tagged version's manifest tree via `audit.sh`
 # (co-located in this directory; invoked rather than reimplemented — see
 # that script's header for why the registry, not the Packages API, is the
-# only authoritative source for "is this tag actually pullable"). If any
-# kept tag's index now has a missing child, that's a catastrophic
-# regression: reported loudly by tag, exit 3.
+# only authoritative source for "is this tag actually pullable").
+#
+# With --apply, this script snapshots each touched package's broken-tag set
+# immediately BEFORE that package's deletions run ("pre"), then re-verifies
+# it after ("post"). A tag is only a REGRESSION if it was healthy pre and is
+# broken post — that's this run's own doing, reported loudly by tag, exit 3.
+# A tag broken in BOTH pre and post is pre-existing corruption this run
+# didn't cause (its version is simply beyond --budget, not yet reached);
+# it's reported in its own non-fatal "KNOWN PRE-EXISTING CORRUPTION"
+# section and does NOT trip exit 3. This distinction matters on a budgeted
+# multi-run drain of an already-broken package (e.g. rover): without it,
+# every single run would falsely report the same known, already-tracked
+# corruption as a fresh regression. If the "pre" snapshot itself fails
+# operationally, every broken "post" tag for that package is conservatively
+# treated as a regression (fail loud, never silently swallow a real one).
+#
+# --verify-only never applies anything, so it has no "pre" snapshot from
+# this run to diff against. Every broken tag it finds is therefore reported
+# as PRE-EXISTING corruption, not a regression, and does NOT trip exit 3 —
+# only its own operational failures (exit 2) do.
 #
 # DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag (or the
 # APPLY=true environment variable — see below); no other input changes this.
@@ -153,13 +170,16 @@
 # after delegating to this script. Hand-runs outside Actions stay quiet.
 #
 # Exit codes:
-#   0  nothing to do / dry run clean
+#   0  nothing to do / dry run clean / --verify-only found no broken tags
+#      (or only PRE-EXISTING broken tags — see VERIFICATION above)
 #   1  completed with some delete failures (--apply only)
 #   2  operational failure (no token, network error, jq/docker missing, ...)
 #   3  a safety-critical condition: rail #1/#2 tripped (whole run aborted,
 #      nothing deleted), OR rail #4 tripped for at least one package (that
-#      package skipped, others still processed), OR verification found a
-#      kept tag that is now broken
+#      package skipped, others still processed), OR post-apply verification
+#      found a REGRESSION — a tag that was healthy immediately before this
+#      run's deletions and is broken now (pre-existing corruption alone
+#      never trips this; see VERIFICATION above)
 
 set -uo pipefail
 
@@ -170,7 +190,7 @@ if [ -n "${GITHUB_ACTIONS:-}" ]; then
       0) echo "prune.sh: clean run, nothing further to report." ;;
       1) echo "::warning::prune.sh exited 1: completed with some delete failures. See the log and prune-plan.json artifact." ;;
       2) echo "::error::prune.sh exited 2: operational failure (missing token, network error, or missing tooling). Not a classification problem." ;;
-      3) echo "::error::prune.sh exited 3: a safety rail tripped, or post-apply verification found a kept tag now broken. Nothing unsafe was deleted." ;;
+      3) echo "::error::prune.sh exited 3: a safety rail tripped, or post-apply verification found a REGRESSION (a tag healthy before this run's deletions is now broken). Nothing unsafe was deleted. Pre-existing corruption alone does not trip this — see the log for a separate non-fatal KNOWN PRE-EXISTING CORRUPTION section if present." ;;
       *) echo "::error::prune.sh exited unexpected code $rc." ;;
     esac
     echo "NOTE: exit 2 with nginx and/or rover reported under FAIL-CLOSED is currently EXPECTED — those two packages already have broken tags from the pre-existing registry corruption (see audit.sh) and prune.sh correctly refuses to plan for them until that is remediated separately. Pass --delete-broken-roots to remediate: it clears keep-roots whose descendants are all confirmed 404 (dead indexes) so those packages can be pruned normally. This is not a new problem introduced by this run."
@@ -273,19 +293,26 @@ Options:
   --force               Override the --max-delete-ratio rail
   --verify-only         Skip planning/deletion entirely; just re-resolve
                         every currently-tagged version's manifest tree via
-                        audit.sh and report any broken tags. Exit 3 if
-                        any are found.
+                        audit.sh and report any broken tags. Since nothing
+                        is applied, there is no "before" to diff against:
+                        every broken tag found is reported as PRE-EXISTING
+                        corruption, never as a regression, and does not
+                        affect the exit code (still 0 unless an operational
+                        failure occurs, then 2).
   --json FILE           Write the full machine-readable plan to FILE
   -h, --help            Show this help and exit
 
 Exit codes:
-  0  nothing to do / dry run clean
+  0  nothing to do / dry run clean / --verify-only found no broken tags
+     (or only PRE-EXISTING ones)
   1  completed with some delete failures (--apply only)
   2  operational failure (no token, network error, jq/docker missing, ...)
   3  a safety-critical condition: rail #1/#2 tripped (whole run aborted,
      nothing deleted), OR rail #4 tripped for at least one package (that
-     package skipped, others still processed), OR verification found a
-     kept tag that is now broken
+     package skipped, others still processed), OR post-apply verification
+     found a REGRESSION (a tag healthy immediately before this run's
+     deletions and broken now — pre-existing corruption alone never trips
+     this)
 EOF
 }
 
@@ -596,13 +623,17 @@ list_packages() {
 # Verification (audit.sh wrapper — see header comment for rationale)
 # ---------------------------------------------------------------------------
 
-# verify_package IMAGE -> writes "$WORKDIR/verify-<image>.json" (audit.sh's
-# raw JSON array, one element). Returns 0 clean, 1 broken tags found,
-# 2 operational failure (including audit.sh missing).
+# verify_package IMAGE [LABEL] -> writes "$WORKDIR/verify-<image>-<label>.json"
+# (audit.sh's raw JSON array, one element). LABEL defaults to "current" and
+# distinguishes independent calls for the same image within one run (e.g.
+# a PRE-apply snapshot and a POST-apply snapshot must not clobber each
+# other — see the regression-vs-pre-existing comparison below). Returns
+# 0 clean, 1 broken tags found, 2 operational failure (including audit.sh
+# missing).
 verify_package() {
-  local image="$1"
-  local out_json="$WORKDIR/verify-${image}.json"
-  local stderr_file="$WORKDIR/verify-${image}.stderr"
+  local image="$1" label="${2:-current}"
+  local out_json="$WORKDIR/verify-${image}-${label}.json"
+  local stderr_file="$WORKDIR/verify-${image}-${label}.stderr"
 
   if [ ! -x "$AUDIT_SCRIPT" ]; then
     log_err "cannot verify ${image}: ${AUDIT_SCRIPT} not found or not executable"
@@ -622,13 +653,21 @@ verify_package() {
   esac
 }
 
-# print_broken_tags IMAGE -> prints "    - <tag>" for every broken tag found
-# by the last verify_package call for IMAGE.
+# print_broken_tags IMAGE [LABEL] -> prints "    - <tag>" for every broken
+# tag found by the verify_package call for IMAGE/LABEL (see verify_package).
 print_broken_tags() {
-  local image="$1"
-  jq -r '.[0].broken_tags[]? // empty' "$WORKDIR/verify-${image}.json" 2>/dev/null | while IFS= read -r t; do
+  local image="$1" label="${2:-current}"
+  jq -r '.[0].broken_tags[]? // empty' "$WORKDIR/verify-${image}-${label}.json" 2>/dev/null | while IFS= read -r t; do
     echo "    - ${image}:${t}"
   done
+}
+
+# broken_tags_list IMAGE [LABEL] -> one broken tag per line (no "image:"
+# prefix, sorted, deduped) from the verify_package call for IMAGE/LABEL. Used
+# to diff two snapshots of the same image (pre vs post) with comm(1).
+broken_tags_list() {
+  local image="$1" label="${2:-current}"
+  jq -r '.[0].broken_tags[]? // empty' "$WORKDIR/verify-${image}-${label}.json" 2>/dev/null | sort -u
 }
 
 # ---------------------------------------------------------------------------
@@ -1068,6 +1107,11 @@ fi
 
 if [ "$VERIFY_ONLY" -eq 1 ]; then
   echo "=== VERIFY-ONLY: re-resolving every currently-tagged version's manifest tree via audit.sh ==="
+  echo "NOTE: --verify-only takes no pre-run snapshot (it deletes nothing), so it has no"
+  echo "'before' to diff against. Any broken tag found is therefore reported as PRE-EXISTING"
+  echo "corruption, never as a regression — this run cannot have caused it. To distinguish a"
+  echo "genuine regression from pre-existing corruption, use --apply, whose post-apply"
+  echo "verification compares against a snapshot taken immediately before that run's deletions."
   verify_any_broken=0
   verify_any_opfail=0
   while IFS=$'\t' read -r image class; do
@@ -1075,14 +1119,14 @@ if [ "$VERIFY_ONLY" -eq 1 ]; then
     if [ "$class" = "orphan" ] && [ "$INCLUDE_ORPHANS" -ne 1 ]; then
       continue
     fi
-    verify_package "$image"
+    verify_package "$image" "known"
     vrc=$?
     case "$vrc" in
       0) echo "${image}  ${class}  VERIFY OK (all tags intact)" ;;
       1)
-        verify_any_broken=1
-        echo "${image}  ${class}  VERIFY FAILED — broken tags:"
-        print_broken_tags "$image"
+        verify_any_broken=$((verify_any_broken + 1))
+        echo "${image}  ${class}  VERIFY FOUND PRE-EXISTING broken tags (not a regression — nothing ran):"
+        print_broken_tags "$image" "known"
         ;;
       2)
         verify_any_opfail=1
@@ -1092,7 +1136,7 @@ if [ "$VERIFY_ONLY" -eq 1 ]; then
   done < "$WORKLIST_FILE"
 
   if [ -n "$JSON_OUT" ]; then
-    verify_files=("$WORKDIR"/verify-*.json)
+    verify_files=("$WORKDIR"/verify-*-known.json)
     if [ -e "${verify_files[0]}" ]; then
       jq -s '. | flatten' "${verify_files[@]}" > "$JSON_OUT"
     else
@@ -1102,8 +1146,13 @@ if [ "$VERIFY_ONLY" -eq 1 ]; then
   fi
 
   if [ "$verify_any_broken" -eq 1 ]; then
-    exit 3
+    echo ""
+    echo "=== ${verify_any_broken} package(s) above have known pre-existing broken tags — see runbook / --delete-broken-roots to remediate ==="
   fi
+
+  # Pre-existing corruption found by --verify-only is reported above but is
+  # NOT a regression (this run performed no deletions to have caused one),
+  # so it does not trip exit 3 — see the exit-code table in the header.
   if [ "$verify_any_opfail" -eq 1 ]; then
     exit 2
   fi
@@ -1116,6 +1165,7 @@ fi
 
 TOTAL_DELETE=0
 TOTAL_PLANNED=0
+ACTUAL_DELETED=0
 SKIPPED_PACKAGES=()
 RATIO_TRIPPED_PACKAGES=()
 FAILCLOSED_PACKAGES=()
@@ -1179,6 +1229,8 @@ fi
 REMAINING=$((TOTAL_DELETE - EFFECTIVE_DELETE))
 
 APPLIED_PACKAGES=()
+REGRESSION_PACKAGES=()
+PREEXISTING_CORRUPTION_PACKAGES=()
 
 if [ "$APPLY" -eq 1 ]; then
   BUDGET_LEFT=$BUDGET
@@ -1188,6 +1240,17 @@ if [ "$APPLY" -eq 1 ]; then
     enc=$(jq -rn --arg s "$pkg_name" '$s|@uri')
     delete_count=$(jq -r '.delete_count' "$WORKDIR/plan-${image}.json")
     [ "$delete_count" -eq 0 ] && continue
+
+    # Snapshot this package's broken-tag state BEFORE its deletions run, so
+    # post-apply verification can tell a genuine regression (healthy here,
+    # broken after) apart from pre-existing corruption this run didn't
+    # cause and simply hasn't reached yet (see the header comment).
+    verify_package "$image" "pre"
+    pre_rc=$?
+    if [ "$pre_rc" -eq 2 ]; then
+      : > "$WORKDIR/pre-unknown-${image}"
+      log_warn "could not capture pre-apply state for ${image}; post-apply regression detection for it will fail loud (treat all broken tags as regressions) rather than silently miss one"
+    fi
 
     package_deleted=0
     while IFS= read -r id; do
@@ -1202,6 +1265,7 @@ if [ "$APPLY" -eq 1 ]; then
         DELETE_FAILURES=$((DELETE_FAILURES + 1))
       else
         package_deleted=1
+        ACTUAL_DELETED=$((ACTUAL_DELETED + 1))
       fi
       BUDGET_LEFT=$((BUDGET_LEFT - 1))
       sleep 1
@@ -1211,19 +1275,48 @@ if [ "$APPLY" -eq 1 ]; then
       APPLIED_PACKAGES+=("$image")
     fi
   done
-  REMAINING=$((TOTAL_DELETE - (BUDGET - BUDGET_LEFT)))
+  # REMAINING = versions still needing deletion = TOTAL_DELETE minus the
+  # deletions that actually SUCCEEDED (ACTUAL_DELETED). A failed DELETE call
+  # leaves that version in the registry, so it must still count toward
+  # REMAINING even though budget was spent attempting it.
+  REMAINING=$((TOTAL_DELETE - ACTUAL_DELETED))
 
   if [ "${#APPLIED_PACKAGES[@]}" -gt 0 ]; then
-    echo "=== POST-APPLY VERIFICATION: re-resolving kept tags via audit.sh ==="
+    echo "=== POST-APPLY VERIFICATION: re-resolving kept tags via audit.sh (compared against the pre-apply state captured above, per-package) ==="
     for image in "${APPLIED_PACKAGES[@]}"; do
-      verify_package "$image"
+      verify_package "$image" "post"
       vrc=$?
       case "$vrc" in
         0) log_info "post-apply verify OK: ${image}" ;;
         1)
-          VERIFY_REGRESSION=1
-          log_err "POST-APPLY REGRESSION in ${image}: a kept tag is now broken"
-          print_broken_tags "$image" >&2
+          post_tags_file="$WORKDIR/broken-post-${image}.txt"
+          pre_tags_file="$WORKDIR/broken-pre-${image}.txt"
+          broken_tags_list "$image" "post" > "$post_tags_file"
+          if [ -f "$WORKDIR/pre-unknown-${image}" ]; then
+            log_warn "pre-apply state for ${image} could not be captured; treating every broken tag found now as a potential regression"
+            : > "$pre_tags_file"
+          else
+            broken_tags_list "$image" "pre" > "$pre_tags_file"
+          fi
+          regression_tags_file="$WORKDIR/regression-${image}.txt"
+          preexisting_tags_file="$WORKDIR/preexisting-${image}.txt"
+          comm -23 "$post_tags_file" "$pre_tags_file" > "$regression_tags_file"
+          comm -12 "$post_tags_file" "$pre_tags_file" > "$preexisting_tags_file"
+
+          if [ -s "$regression_tags_file" ]; then
+            VERIFY_REGRESSION=1
+            REGRESSION_PACKAGES+=("$image")
+            log_err "POST-APPLY REGRESSION in ${image}: a tag that was healthy before this run is now broken"
+            while IFS= read -r t; do
+              [ -z "$t" ] && continue
+              echo "    - ${image}:${t}" >&2
+            done < "$regression_tags_file"
+          fi
+          if [ -s "$preexisting_tags_file" ]; then
+            PREEXISTING_CORRUPTION_PACKAGES+=("$image")
+            preexisting_count=$(wc -l < "$preexisting_tags_file" | tr -d ' ')
+            log_warn "${image}: ${preexisting_count} known pre-existing broken tag(s) remain (not caused by this run; will clear once the budget reaches their broken root)"
+          fi
           ;;
         2) OPERATIONAL_FAILURE=1 ;;
       esac
@@ -1237,7 +1330,7 @@ fi
 
 echo "---"
 if [ "$APPLY" -eq 1 ]; then
-  echo "deleted up to $((BUDGET - REMAINING > 0 ? BUDGET - REMAINING : 0)) versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining, ${DELETE_FAILURES} failures)"
+  echo "deleted ${ACTUAL_DELETED} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining, ${DELETE_FAILURES} failures)"
 else
   echo "DRY RUN: would delete ${EFFECTIVE_DELETE} of ${TOTAL_DELETE} planned versions across ${TOTAL_PLANNED} package(s) (budget ${BUDGET}, ${REMAINING} remaining)"
 fi
@@ -1298,9 +1391,25 @@ if [ "${#OTHER_SKIPPED[@]}" -gt 0 ]; then
   echo "SKIPPED (operational failure — version listing or registry token): ${OTHER_SKIPPED[*]}"
 fi
 
+if [ "${#PREEXISTING_CORRUPTION_PACKAGES[@]}" -gt 0 ]; then
+  echo ""
+  echo "=== KNOWN PRE-EXISTING CORRUPTION REMAINING (not caused by this run) ==="
+  echo "These tags were already broken before this run's deletions and are still broken;"
+  echo "their versions simply haven't been reached by this run's --budget yet. Not a"
+  echo "regression, not fatal — will clear once a future run's budget deletes their dead"
+  echo "root (see --delete-broken-roots)."
+  for image in "${PREEXISTING_CORRUPTION_PACKAGES[@]}"; do
+    echo "  ${image}:"
+    while IFS= read -r t; do
+      [ -z "$t" ] && continue
+      echo "    - ${image}:${t}"
+    done < "$WORKDIR/preexisting-${image}.txt"
+  done
+fi
+
 if [ "$VERIFY_REGRESSION" -eq 1 ]; then
   echo ""
-  echo "=== POST-APPLY REGRESSION DETECTED — see ERROR lines above for broken tags ==="
+  echo "=== POST-APPLY REGRESSION DETECTED in: ${REGRESSION_PACKAGES[*]} — see ERROR lines above for broken tags ==="
 fi
 
 if [ -n "$JSON_OUT" ]; then
