@@ -44,6 +44,18 @@ run-name: Tidy GHCR
 # their existing corruption is remediated separately; that is expected, not
 # a bug in this workflow.
 #
+# CREDENTIAL: both jobs require the `GHCR_ADMIN_TOKEN` repository secret (a
+# classic PAT with read:packages, delete:packages and read:org). Both
+# scripts enumerate packages via `GET /orgs/{org}/packages?package_type=
+# container`, and the default `GITHUB_TOKEN` — a GitHub App installation
+# token scoped to this single repository — gets HTTP 400 from that endpoint
+# (it only works for App tokens installed at the org level). There is no
+# repo-scoped REST alternative, and the GraphQL PackageType enum doesn't
+# expose CONTAINER either, so a classic PAT is the only way to list them.
+# `GITHUB_TOKEN` is kept as a fallback purely so the workflow still runs
+# (and fails with the clear diagnostic below) when the secret is absent,
+# rather than erroring at expression evaluation.
+#
 # THE `schedule:` TRIGGER BELOW IS SAFE, unlike a bare dispatch-only workflow
 # would have been while both scripts still had unproven safety rails: on a
 # `schedule` event `inputs.apply` is empty (falsy), so BOTH jobs run in DRY
@@ -112,7 +124,12 @@ jobs:
       - name: Retire orphaned packages
         id: retire
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See the workflow header comment: GHCR_ADMIN_TOKEN (classic PAT
+          # with read:packages, delete:packages, read:org) is required to
+          # list org packages; GITHUB_TOKEN is only a fallback so the run
+          # still happens and fails with a clear diagnostic when the
+          # secret is unset.
+          GITHUB_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
           APPLY: ${{ inputs.apply }}
           AFTER_DAYS: ${{ inputs.retire_after_days }}
           RETIRE_PACKAGES: ${{ inputs.retire_packages }}
@@ -141,7 +158,12 @@ jobs:
       - name: Prune GHCR packages
         id: prune
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See the workflow header comment: GHCR_ADMIN_TOKEN (classic PAT
+          # with read:packages, delete:packages, read:org) is required to
+          # list org packages; GITHUB_TOKEN is only a fallback so the run
+          # still happens and fails with a clear diagnostic when the
+          # secret is unset.
+          GITHUB_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
           APPLY: ${{ inputs.apply }}
           PACKAGES: ${{ inputs.packages }}
           BUDGET: ${{ inputs.budget }}

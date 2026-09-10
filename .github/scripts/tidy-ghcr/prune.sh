@@ -78,6 +78,13 @@
 #      this is about to delete nearly everything", not to gate normal
 #      cleanup, hence the high default threshold.
 #
+# CREDENTIAL: GITHUB_TOKEN/GH_TOKEN must be a classic PAT with read:packages,
+# read:org (and delete:packages to --apply) — see list_packages below. A
+# GitHub App installation token (e.g. the default Actions GITHUB_TOKEN) is
+# scoped to a single repository and gets HTTP 400 from the org packages-list
+# endpoint; there is no repo-scoped REST alternative. The workflow supplies
+# GHCR_ADMIN_TOKEN for this reason; this script only ever reads GITHUB_TOKEN.
+#
 # VERIFICATION (--verify-only, and automatically after --apply): re-resolves
 # every currently-tagged version's manifest tree via `audit.sh`
 # (co-located in this directory; invoked rather than reimplemented — see
@@ -365,6 +372,36 @@ log_warn() { echo "WARN: $*" >&2; }
 log_info() { echo "INFO: $*" >&2; }
 log_err()  { echo "ERROR: $*" >&2; }
 
+# report_enum_failure STATUS -> prints a diagnostic for a failed
+# organization packages-list call. HTTP 400/403/401 from
+# `GET /orgs/{owner}/packages` almost always means the token is a
+# repository-scoped GitHub App installation token (the default Actions
+# GITHUB_TOKEN) rather than a classic PAT — that endpoint can only list org
+# packages for a classic PAT (or an App token installed at the org level).
+# Any other status (network error, 5xx, rate limit) gets the generic
+# message instead, so a transient failure isn't misreported as a
+# credential problem.
+report_enum_failure() {
+  local status="$1"
+  case "$status" in
+    400|401|403)
+      log_err "failed to enumerate packages via the Packages API (HTTP ${status})."
+      log_err "This endpoint cannot be called with a repository-scoped GitHub App"
+      log_err "installation token (the default Actions GITHUB_TOKEN): it can only list"
+      log_err "organization packages for a classic PAT (or an App token installed at the"
+      log_err "org level). Set GHCR_ADMIN_TOKEN as a repository secret to a classic PAT"
+      log_err "with read:packages, delete:packages and read:org scopes."
+      log_err "(A fine-grained PAT will not work; GitHub Packages does not support them.)"
+      log_err "Note: an invalid/expired token also produces 401 here, so 401 alone doesn't"
+      log_err "prove a scope problem — but the fix (a valid classic PAT with the scopes"
+      log_err "above) is the same either way."
+      ;;
+    *)
+      log_err "failed to enumerate packages via the Packages API (HTTP ${status:-unknown})."
+      ;;
+  esac
+}
+
 OPERATIONAL_FAILURE=0
 SAFETY_ABORT=0
 RATIO_TRIPPED=0
@@ -435,7 +472,10 @@ get_registry_token() {
 # github_api_paginate URL OUT_FILE -> appends each page's JSON array elements
 # (one compact JSON object per line) to OUT_FILE, following `Link: rel="next"`.
 # Returns 1 on any page failure (OUT_FILE contents up to that point are
-# unreliable and must not be trusted by the caller).
+# unreliable and must not be trusted by the caller). On failure, also sets
+# LAST_API_STATUS to the failing HTTP status so callers can distinguish a
+# credential/scope problem from a transient one (see report_enum_failure).
+LAST_API_STATUS=""
 github_api_paginate() {
   local url="$1" out_file="$2"
   local body headers status link next
@@ -447,6 +487,7 @@ github_api_paginate() {
 
     if [ "$status" != "200" ]; then
       log_warn "GitHub API request failed: ${url} (status ${status})"
+      LAST_API_STATUS="$status"
       rm -f "$body" "$headers"
       return 1
     fi
@@ -809,7 +850,7 @@ plan_package() {
 
 log_info "discovering packages linked to ${OWNER}/${REPO} with prefix ${REPO_PREFIX}/ ..."
 if ! list_packages; then
-  log_err "failed to enumerate packages via the Packages API"
+  report_enum_failure "$LAST_API_STATUS"
   exit 2
 fi
 
