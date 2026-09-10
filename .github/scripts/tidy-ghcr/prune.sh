@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# prune-ghcr.sh — reachability-safe GHCR prune for this repo's container
+# prune.sh — reachability-safe GHCR prune for this repo's container
 # packages.
 #
 # THE PROBLEM WITH THE OLD PRUNE: it treated "untagged == garbage" and
@@ -79,22 +79,45 @@
 #      cleanup, hence the high default threshold.
 #
 # VERIFICATION (--verify-only, and automatically after --apply): re-resolves
-# every currently-tagged version's manifest tree via `audit-ghcr.sh`
+# every currently-tagged version's manifest tree via `audit.sh`
 # (co-located in this directory; invoked rather than reimplemented — see
 # that script's header for why the registry, not the Packages API, is the
 # only authoritative source for "is this tag actually pullable"). If any
 # kept tag's index now has a missing child, that's a catastrophic
 # regression: reported loudly by tag, exit 3.
 #
-# DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag; there
-# is no environment variable that changes this.
+# DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag (or the
+# APPLY=true environment variable — see below); no other input changes this.
 #
 # Usage:
-#   prune-ghcr.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
-#                 [--package NAME]... [--keep-last N] [--keep-days N]
-#                 [--keep-all-tagged] [--grace-days N] [--keep-tag-regex RE]...
-#                 [--max-delete-ratio R] [--budget N] [--include-orphans]
-#                 [--apply] [--force] [--verify-only] [--json FILE]
+#   prune.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
+#            [--package NAME]... [--keep-last N] [--keep-days N]
+#            [--keep-all-tagged] [--grace-days N] [--keep-tag-regex RE]...
+#            [--max-delete-ratio R] [--budget N] [--include-orphans]
+#            [--apply] [--force] [--verify-only] [--json FILE]
+#
+# Backs: tidy-ghcr.yml, job `prune`, step "Prune GHCR packages". This script
+# doubles as the workflow entry point (the former thin wrapper script has
+# been folded in here): the environment variables below are read as
+# DEFAULTS, with any CLI flag of the same name taking precedence. Only the
+# exact string "true" enables APPLY / KEEP_ALL_TAGGED — anything else,
+# including unset/empty (what a `schedule` event yields), is treated as
+# false, which is what keeps scheduled runs dry.
+#
+#   APPLY            - "true" to enable --apply; anything else is dry-run
+#   PACKAGES         - space-separated package names, each becomes a
+#                      repeated --package
+#   BUDGET           - default for --budget
+#   KEEP_ALL_TAGGED  - "true" to enable --keep-all-tagged
+#   OWNER            - default for --owner
+#   REPO             - default for --repo
+#   REPO_PREFIX      - default for --repo-prefix
+#
+# When run under GitHub Actions (GITHUB_ACTIONS is set), this script also
+# annotates its own exit code with a human-readable ::warning::/::error::
+# message on the way out — including the note that exit 2 with nginx/rover
+# fail-closed is currently EXPECTED — mirroring what the old wrapper printed
+# after delegating to this script. Hand-runs outside Actions stay quiet.
 #
 # Exit codes:
 #   0  nothing to do / dry run clean
@@ -107,30 +130,58 @@
 
 set -uo pipefail
 
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  annotate_exit() {
+    local rc=$?
+    case "$rc" in
+      0) echo "prune.sh: clean run, nothing further to report." ;;
+      1) echo "::warning::prune.sh exited 1: completed with some delete failures. See the log and prune-plan.json artifact." ;;
+      2) echo "::error::prune.sh exited 2: operational failure (missing token, network error, or missing tooling). Not a classification problem." ;;
+      3) echo "::error::prune.sh exited 3: a safety rail tripped, or post-apply verification found a kept tag now broken. Nothing unsafe was deleted." ;;
+      *) echo "::error::prune.sh exited unexpected code $rc." ;;
+    esac
+    echo "NOTE: exit 2 with nginx and/or rover reported under FAIL-CLOSED is currently EXPECTED — those two packages already have broken tags from the pre-existing registry corruption (see audit.sh) and prune.sh correctly refuses to plan for them until that is remediated separately. This is not a new problem introduced by this run."
+  }
+fi
+
 # ---------------------------------------------------------------------------
 # Defaults / argument parsing
 # ---------------------------------------------------------------------------
 
-OWNER="pyck-ai"
-REPO="baseimages"
-REPO_PREFIX="baseimages"
+# Env vars supply defaults (see header comment); CLI flags below take
+# precedence over all of them. Captured before APPLY/KEEP_ALL_TAGGED are
+# reassigned below, since the env vars and the internal flags share names.
+APPLY_FROM_ENV="${APPLY:-}"
+KEEP_ALL_TAGGED_FROM_ENV="${KEEP_ALL_TAGGED:-}"
+
+OWNER="${OWNER:-pyck-ai}"
+REPO="${REPO:-baseimages}"
+REPO_PREFIX="${REPO_PREFIX:-baseimages}"
 REQUESTED_PACKAGES=()
+if [ -n "${PACKAGES:-}" ]; then
+  for _p in $PACKAGES; do
+    REQUESTED_PACKAGES+=("$_p")
+  done
+  unset _p
+fi
 KEEP_LAST=10
 KEEP_DAYS=90
 KEEP_ALL_TAGGED=0
+[ "$KEEP_ALL_TAGGED_FROM_ENV" = "true" ] && KEEP_ALL_TAGGED=1
 GRACE_DAYS=7
 KEEP_TAG_REGEXES=()
 MAX_DELETE_RATIO="0.98"
-BUDGET=400
+BUDGET="${BUDGET:-400}"
 INCLUDE_ORPHANS=0
 APPLY=0
+[ "$APPLY_FROM_ENV" = "true" ] && APPLY=1
 FORCE=0
 VERIFY_ONLY=0
 JSON_OUT=""
 
 usage() {
   cat <<'EOF'
-Usage: prune-ghcr.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
+Usage: prune.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
                       [--package NAME]... [--keep-last N] [--keep-days N]
                       [--keep-all-tagged] [--grace-days N]
                       [--keep-tag-regex RE]... [--max-delete-ratio R]
@@ -176,7 +227,7 @@ Options:
   --force               Override the --max-delete-ratio rail
   --verify-only         Skip planning/deletion entirely; just re-resolve
                         every currently-tagged version's manifest tree via
-                        audit-ghcr.sh and report any broken tags. Exit 3 if
+                        audit.sh and report any broken tags. Exit 3 if
                         any are found.
   --json FILE           Write the full machine-readable plan to FILE
   -h, --help            Show this help and exit
@@ -263,7 +314,7 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "prune-ghcr.sh: unknown argument: $1" >&2
+      echo "prune.sh: unknown argument: $1" >&2
       usage >&2
       exit 2
       ;;
@@ -280,31 +331,35 @@ fi
 
 for bin in curl jq docker; do
   if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "prune-ghcr.sh: required command '$bin' not found in PATH" >&2
+    echo "prune.sh: required command '$bin' not found in PATH" >&2
     exit 2
   fi
 done
 
 GH_TOKEN_VALUE="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 if [ -z "$GH_TOKEN_VALUE" ]; then
-  echo "prune-ghcr.sh: GITHUB_TOKEN or GH_TOKEN must be set (needs read:packages, and delete:packages to --apply)" >&2
+  echo "prune.sh: GITHUB_TOKEN or GH_TOKEN must be set (needs read:packages, and delete:packages to --apply)" >&2
   exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-AUDIT_SCRIPT="$SCRIPT_DIR/audit-ghcr.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+AUDIT_SCRIPT="$SCRIPT_DIR/audit.sh"
 
 if [ ! -f "$REPO_ROOT/buildargs.conf" ] || [ ! -f "$REPO_ROOT/docker-bake.hcl" ]; then
-  echo "prune-ghcr.sh: expected buildargs.conf and docker-bake.hcl under $REPO_ROOT" >&2
+  echo "prune.sh: expected buildargs.conf and docker-bake.hcl under $REPO_ROOT" >&2
   exit 2
 fi
 
 REGISTRY_ACCEPT="application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
 GITHUB_ACCEPT="application/vnd.github+json"
 
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/prune-ghcr.XXXXXX")"
-trap 'rm -rf "$WORKDIR"' EXIT
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/prune.XXXXXX")"
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  trap 'rm -rf "$WORKDIR"; annotate_exit' EXIT
+else
+  trap 'rm -rf "$WORKDIR"' EXIT
+fi
 
 log_warn() { echo "WARN: $*" >&2; }
 log_info() { echo "INFO: $*" >&2; }
@@ -318,7 +373,7 @@ DELETE_FAILURES=0
 NOW_EPOCH=$(date -u +%s)
 
 # ---------------------------------------------------------------------------
-# HTTP helpers (mirrors audit-ghcr.sh's retry/backoff conventions)
+# HTTP helpers (mirrors audit.sh's retry/backoff conventions)
 # ---------------------------------------------------------------------------
 
 # request_with_retry URL ACCEPT AUTH_HEADER OUT_BODY OUT_HEADERS [METHOD]
@@ -454,12 +509,12 @@ list_packages() {
 }
 
 # ---------------------------------------------------------------------------
-# Verification (audit-ghcr.sh wrapper — see header comment for rationale)
+# Verification (audit.sh wrapper — see header comment for rationale)
 # ---------------------------------------------------------------------------
 
-# verify_package IMAGE -> writes "$WORKDIR/verify-<image>.json" (audit-ghcr.sh's
+# verify_package IMAGE -> writes "$WORKDIR/verify-<image>.json" (audit.sh's
 # raw JSON array, one element). Returns 0 clean, 1 broken tags found,
-# 2 operational failure (including audit-ghcr.sh missing).
+# 2 operational failure (including audit.sh missing).
 verify_package() {
   local image="$1"
   local out_json="$WORKDIR/verify-${image}.json"
@@ -813,7 +868,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ "$VERIFY_ONLY" -eq 1 ]; then
-  echo "=== VERIFY-ONLY: re-resolving every currently-tagged version's manifest tree via audit-ghcr.sh ==="
+  echo "=== VERIFY-ONLY: re-resolving every currently-tagged version's manifest tree via audit.sh ==="
   verify_any_broken=0
   verify_any_opfail=0
   while IFS=$'\t' read -r image class; do
@@ -956,7 +1011,7 @@ if [ "$APPLY" -eq 1 ]; then
   REMAINING=$((TOTAL_DELETE - (BUDGET - BUDGET_LEFT)))
 
   if [ "${#APPLIED_PACKAGES[@]}" -gt 0 ]; then
-    echo "=== POST-APPLY VERIFICATION: re-resolving kept tags via audit-ghcr.sh ==="
+    echo "=== POST-APPLY VERIFICATION: re-resolving kept tags via audit.sh ==="
     for image in "${APPLIED_PACKAGES[@]}"; do
       verify_package "$image"
       vrc=$?

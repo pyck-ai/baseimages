@@ -2,7 +2,8 @@
 # Extracts the per-target pushed digests from bake's metadata output and
 # writes them as a small JSON map for the current component.
 #
-# Backs: build-images.yml, job `build`, step "Export digests".
+# Backs: build-images.yml, job `build`, step "Export digests". Lives at
+# .github/scripts/build-images/export-digests.sh.
 #
 # Expects env:
 #   METADATA     - the JSON metadata produced by `docker buildx bake`

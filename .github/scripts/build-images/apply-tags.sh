@@ -2,7 +2,8 @@
 # Applies the floating/version tags to the digests recorded in digests.json,
 # now that the `verify` job has confirmed they are good.
 #
-# Backs: build-images.yml, job `publish`, step "Apply tags".
+# Backs: build-images.yml, job `publish`, step "Apply tags". Lives at
+# .github/scripts/build-images/apply-tags.sh.
 #
 # Expects env:
 #   REGISTRY - registry/repo prefix passed to `docker buildx bake`

@@ -3,7 +3,7 @@
 # file's dependency graph.
 #
 # Backs: build-images.yml, job `discover`, step "Read targets and build args
-# from bake file".
+# from bake file". Lives at .github/scripts/build-images/discover.sh.
 #
 # Expects env:
 #   REGISTRY          - registry/repo prefix passed to `docker buildx bake`

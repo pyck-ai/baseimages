@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# retire-packages.sh — delete entire orphaned GHCR container packages.
+# retire.sh — delete entire orphaned GHCR container packages.
 #
 # THE PROBLEM: when an image is renamed or removed from docker-bake.hcl, its
-# GHCR package is orphaned FOREVER. prune-ghcr.sh deliberately cannot fix
+# GHCR package is orphaned FOREVER. prune.sh deliberately cannot fix
 # this: it does per-version retention *inside* a package, so on an orphan it
 # deletes some versions and leaves the package itself alive and pullable.
 # Removing a dead package outright is a different operation
@@ -49,13 +49,33 @@
 # aborting on the first one, so a re-run converges instead of getting stuck
 # retrying an already-processed package.
 #
-# DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag; there
-# is no environment variable that changes this.
+# DRY RUN IS THE DEFAULT. Deleting requires the explicit --apply flag (or the
+# APPLY=true environment variable — see below); no other input changes this.
 #
 # Usage:
-#   retire-packages.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
-#                       [--after-days N] [--infra NAME]... [--max-retire N]
-#                       [--apply] [--force] [--json FILE]
+#   retire.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
+#             [--after-days N] [--infra NAME]... [--max-retire N]
+#             [--apply] [--force] [--json FILE]
+#
+# Backs: tidy-ghcr.yml, job `retire`, step "Retire orphaned packages". This
+# script doubles as the workflow entry point (the former thin wrapper script
+# has been folded in here): the environment variables below are read as
+# DEFAULTS, with any CLI flag of the same name taking precedence. Only the
+# exact string "true" enables APPLY — anything else, including unset/empty
+# (what a `schedule` event yields), is treated as false, which is what keeps
+# scheduled runs dry.
+#
+#   APPLY        - "true" to enable --apply; anything else is dry-run
+#   AFTER_DAYS   - default for --after-days
+#   MAX_RETIRE   - default for --max-retire
+#   OWNER        - default for --owner
+#   REPO         - default for --repo
+#   REPO_PREFIX  - default for --repo-prefix
+#
+# When run under GitHub Actions (GITHUB_ACTIONS is set), this script also
+# annotates its own exit code with a human-readable ::warning::/::error::
+# message on the way out, mirroring what the old wrapper printed after
+# delegating to this script. Hand-runs outside Actions stay quiet.
 #
 # Exit codes:
 #   0  nothing to do / dry run clean
@@ -67,23 +87,42 @@
 
 set -uo pipefail
 
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  annotate_exit() {
+    local rc=$?
+    case "$rc" in
+      0) echo "retire.sh: clean run, nothing further to report." ;;
+      1) echo "::warning::retire.sh exited 1: completed with some delete failures. See the log and retire-plan.json artifact." ;;
+      2) echo "::error::retire.sh exited 2: operational failure (missing token, network error, or missing tooling). Not a classification problem." ;;
+      3) echo "::warning::retire.sh exited 3: a safety rail tripped (bakefile discovery failed, a non-orphan ended up in the candidate set, or more packages qualified than --max-retire allows). Nothing was deleted. See the log for the candidate list." ;;
+      *) echo "::error::retire.sh exited unexpected code $rc." ;;
+    esac
+  }
+fi
+
 # ---------------------------------------------------------------------------
 # Defaults / argument parsing
 # ---------------------------------------------------------------------------
 
-OWNER="pyck-ai"
-REPO="baseimages"
-REPO_PREFIX="baseimages"
-AFTER_DAYS=30
-INFRA_NAMES=()
-MAX_RETIRE=3
+# Env vars supply defaults (see header comment); CLI flags below take
+# precedence over all of them. Captured before APPLY is reassigned below,
+# since the env var and the internal flag share a name.
+APPLY_FROM_ENV="${APPLY:-}"
 APPLY=0
+[ "$APPLY_FROM_ENV" = "true" ] && APPLY=1
+
+OWNER="${OWNER:-pyck-ai}"
+REPO="${REPO:-baseimages}"
+REPO_PREFIX="${REPO_PREFIX:-baseimages}"
+AFTER_DAYS="${AFTER_DAYS:-30}"
+INFRA_NAMES=()
+MAX_RETIRE="${MAX_RETIRE:-3}"
 FORCE=0
 JSON_OUT=""
 
 usage() {
   cat <<'EOF'
-Usage: retire-packages.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
+Usage: retire.sh [--owner ORG] [--repo REPO] [--repo-prefix PREFIX]
                            [--after-days N] [--infra NAME]... [--max-retire N]
                            [--apply] [--force] [--json FILE]
 
@@ -163,7 +202,7 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "retire-packages.sh: unknown argument: $1" >&2
+      echo "retire.sh: unknown argument: $1" >&2
       usage >&2
       exit 2
       ;;
@@ -180,29 +219,33 @@ fi
 
 for bin in curl jq docker; do
   if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "retire-packages.sh: required command '$bin' not found in PATH" >&2
+    echo "retire.sh: required command '$bin' not found in PATH" >&2
     exit 2
   fi
 done
 
 GH_TOKEN_VALUE="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 if [ -z "$GH_TOKEN_VALUE" ]; then
-  echo "retire-packages.sh: GITHUB_TOKEN or GH_TOKEN must be set (needs read:packages, and delete:packages to --apply)" >&2
+  echo "retire.sh: GITHUB_TOKEN or GH_TOKEN must be set (needs read:packages, and delete:packages to --apply)" >&2
   exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 if [ ! -f "$REPO_ROOT/buildargs.conf" ] || [ ! -f "$REPO_ROOT/docker-bake.hcl" ]; then
-  echo "retire-packages.sh: expected buildargs.conf and docker-bake.hcl under $REPO_ROOT" >&2
+  echo "retire.sh: expected buildargs.conf and docker-bake.hcl under $REPO_ROOT" >&2
   exit 2
 fi
 
 GITHUB_ACCEPT="application/vnd.github+json"
 
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/retire-packages.XXXXXX")"
-trap 'rm -rf "$WORKDIR"' EXIT
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/retire.XXXXXX")"
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  trap 'rm -rf "$WORKDIR"; annotate_exit' EXIT
+else
+  trap 'rm -rf "$WORKDIR"' EXIT
+fi
 
 log_warn() { echo "WARN: $*" >&2; }
 log_info() { echo "INFO: $*" >&2; }
@@ -213,7 +256,7 @@ DELETE_FAILURES=0
 NOW_EPOCH=$(date -u +%s)
 
 # ---------------------------------------------------------------------------
-# HTTP helpers (mirrors prune-ghcr.sh's retry/backoff conventions)
+# HTTP helpers (mirrors prune.sh's retry/backoff conventions)
 # ---------------------------------------------------------------------------
 
 # request_with_retry URL ACCEPT AUTH_HEADER OUT_BODY OUT_HEADERS [METHOD]

@@ -5,6 +5,7 @@
 # job's name.
 #
 # Backs: build-images.yml, jobs `verify` and `publish`, step "Merge digests".
+# Lives at .github/scripts/build-images/merge-digests.sh.
 #
 # Expects: the `digests/*.json` files already downloaded into the working
 # directory (via actions/download-artifact with merge-multiple: true).

@@ -53,7 +53,7 @@ jobs:
         env:
           REGISTRY: ${{ env.REGISTRY }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
-        run: .github/scripts/ci/discover.sh
+        run: .github/scripts/build-images/discover.sh
 
   # Fan out over the connected components of the dependency graph in parallel.
   # Each component is built in one `bake` invocation, so bake resolves and
@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Load build args
-        run: .github/scripts/ci/load-buildargs.sh
+        run: .github/scripts/build-images/load-buildargs.sh
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
@@ -133,7 +133,7 @@ jobs:
         env:
           METADATA: ${{ steps.bake.outputs.metadata }}
           COMPONENT: ${{ matrix.component.name }}
-        run: .github/scripts/ci/export-digests.sh
+        run: .github/scripts/build-images/export-digests.sh
 
       - name: Upload digests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -171,12 +171,12 @@ jobs:
           merge-multiple: true
 
       - name: Merge digests
-        run: .github/scripts/ci/merge-digests.sh
+        run: .github/scripts/build-images/merge-digests.sh
 
       - name: Verify pushed images
         env:
           REGISTRY: ${{ env.REGISTRY }}
-        run: .github/scripts/ci/verify-digests.sh
+        run: .github/scripts/build-images/verify-digests.sh
 
   # Apply the floating/version tags now that `verify` has confirmed the pushed
   # digests are good. Skipped on PRs: PR builds are pushed by digest only for
@@ -203,12 +203,12 @@ jobs:
           merge-multiple: true
 
       - name: Merge digests
-        run: .github/scripts/ci/merge-digests.sh
+        run: .github/scripts/build-images/merge-digests.sh
 
       - name: Apply tags
         env:
           REGISTRY: ${{ env.REGISTRY }}
-        run: .github/scripts/ci/apply-tags.sh
+        run: .github/scripts/build-images/apply-tags.sh
 
   # Single aggregate gate for the branch-protection required status check. Matrix
   # jobs can't be required directly: their targets are discovered dynamically, and
@@ -233,5 +233,5 @@ jobs:
           RESULT_BUILD: ${{ needs.build.result }}
           RESULT_VERIFY: ${{ needs.verify.result }}
           RESULT_PUBLISH: ${{ needs.publish.result }}
-        run: .github/scripts/ci/gate.sh
+        run: .github/scripts/build-images/gate.sh
 

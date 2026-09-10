@@ -7,6 +7,7 @@
 # unless every stage succeeded.
 #
 # Backs: build-images.yml, job `gate`, step "Verify all stages succeeded".
+# Lives at .github/scripts/build-images/gate.sh.
 #
 # Expects env:
 #   RESULT_DISCOVER - needs.discover.result

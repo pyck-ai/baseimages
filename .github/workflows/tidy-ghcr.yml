@@ -3,17 +3,22 @@ run-name: Tidy GHCR
 
 # Two jobs, in dependency order:
 #
-#   retire - runs `.github/scripts/retire-packages.sh`, which deletes ENTIRE
+#   retire - runs `.github/scripts/tidy-ghcr/retire.sh`, which deletes ENTIRE
 #            GHCR packages that are no longer a target in the bakefile
 #            (renamed/removed images) and have been untouched for
-#            --retire-after-days. Runs FIRST so a whole-package retirement
+#            --after-days. Runs FIRST so a whole-package retirement
 #            avoids spending API budget pruning versions of a package that's
 #            about to be deleted outright.
-#   prune  - runs `.github/scripts/prune-ghcr.sh`, which prunes GHCR package
-#            versions in this repo's `pyck-ai/baseimages` packages using
-#            reachability from kept tagged roots (index -> child manifest,
-#            attestation manifests owned by their subject) rather than a
-#            flat "untagged == garbage" rule.
+#   prune  - runs `.github/scripts/tidy-ghcr/prune.sh`, which prunes GHCR
+#            package versions in this repo's `pyck-ai/baseimages` packages
+#            using reachability from kept tagged roots (index -> child
+#            manifest, attestation manifests owned by their subject) rather
+#            than a flat "untagged == garbage" rule.
+#
+# Both scripts read the inputs below as environment-variable DEFAULTS (see
+# each script's own header comment for the exact names and truthiness
+# rules), so this workflow calls them directly with `env:` — there is no
+# separate wrapper script translating inputs to flags anymore.
 #
 # WHY THE OLD APPROACH IS GONE: this workflow used to run
 # vlaurin/action-ghcr-prune with `prune-untagged: true`. GHCR lists the
@@ -21,7 +26,7 @@ run-name: Tidy GHCR
 # live multi-arch index as separate UNTAGGED package versions, so that
 # action deleted pieces of currently tagged images. This already broke 168
 # published tags across the golang, rover, all-in-one, and nginx packages
-# (see audit-ghcr.sh). prune-ghcr.sh replaces that action entirely, including
+# (see audit.sh). prune.sh replaces that action entirely, including
 # its own package discovery: it enumerates the REAL packages from the GitHub
 # Packages API and classifies them against the bakefile, instead of deriving
 # the image list from `docker buildx bake --print` the way the old
@@ -33,7 +38,7 @@ run-name: Tidy GHCR
 #
 # `nginx` and `rover` CANNOT be pruned yet: they already have broken tags
 # from the incident above (missing child manifests under a currently-tagged
-# root), and prune-ghcr.sh correctly refuses to compute a plan for a package
+# root), and prune.sh correctly refuses to compute a plan for a package
 # when a kept root's manifest tree doesn't fully resolve (safety rail #3,
 # fail-closed). Those two packages must be reported as fail-closed until
 # their existing corruption is remediated separately; that is expected, not
@@ -96,13 +101,13 @@ jobs:
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
-      - name: Run retire-packages.sh
+      - name: Retire orphaned packages
         id: retire
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IN_APPLY: ${{ inputs.apply }}
-          IN_RETIRE_AFTER_DAYS: ${{ inputs.retire_after_days || '30' }}
-        run: .github/scripts/ci/retire.sh
+          APPLY: ${{ inputs.apply }}
+          AFTER_DAYS: ${{ inputs.retire_after_days }}
+        run: .github/scripts/tidy-ghcr/retire.sh --json retire-plan.json
 
       - name: Upload retire plan
         if: always()
@@ -124,15 +129,15 @@ jobs:
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
-      - name: Run prune-ghcr.sh
+      - name: Prune GHCR packages
         id: prune
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IN_APPLY: ${{ inputs.apply }}
-          IN_PACKAGES: ${{ inputs.packages }}
-          IN_BUDGET: ${{ inputs.budget }}
-          IN_KEEP_ALL_TAGGED: ${{ inputs.keep_all_tagged }}
-        run: .github/scripts/ci/prune.sh
+          APPLY: ${{ inputs.apply }}
+          PACKAGES: ${{ inputs.packages }}
+          BUDGET: ${{ inputs.budget }}
+          KEEP_ALL_TAGGED: ${{ inputs.keep_all_tagged }}
+        run: .github/scripts/tidy-ghcr/prune.sh --json prune-plan.json
 
       - name: Upload prune plan
         if: always()
