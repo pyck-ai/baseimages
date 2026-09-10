@@ -60,14 +60,43 @@ run-name: Tidy GHCR
 # (and fails with the clear diagnostic below) when the secret is absent,
 # rather than erroring at expression evaluation.
 #
-# THE `schedule:` TRIGGER BELOW IS SAFE, unlike a bare dispatch-only workflow
-# would have been while both scripts still had unproven safety rails: on a
-# `schedule` event `inputs.apply` is empty (falsy), so BOTH jobs run in DRY
-# RUN and simply report — nothing is ever deleted by the cron. This is what
-# makes maintenance automatic. Arming actual deletion means either flipping
-# the default of the `apply` input (after a supervised manual run has been
-# reviewed) or passing `apply: true` explicitly on a manual dispatch; the
-# schedule itself never supplies it.
+# THE `schedule:` TRIGGER BELOW IS DELIBERATELY ARMED. The `inputs` context
+# is only populated for `workflow_dispatch` (and `workflow_call`) — on a
+# `schedule` event every `${{ inputs.* }}` dereference evaluates to the
+# empty string, `workflow_dispatch` input `default:` values are NEVER
+# applied to a schedule run, and the two scripts arm only on the exact
+# string "true". So a naive `${{ inputs.apply }}` on the schedule trigger
+# renders "" (falsy to the scripts) regardless of what `default:` says on
+# the `apply` input — the nightly cron would silently do nothing at all.
+# Every step `env:` below therefore branches explicitly on
+# `github.event_name == 'schedule'` to arm the run, instead of relying on
+# input defaults.
+#
+# DO NOT "simplify" this to `${{ inputs.apply || 'true' }}`. In Actions
+# expression syntax `false` (the boolean, not just falsy-string) is itself
+# falsy, so `inputs.apply || 'true'` evaluates a manual dispatch with the
+# explicit choice `apply: false` (a deliberate dry run) as `'true'` and
+# deletes anyway — silently turning "let me just look" into "delete
+# everything". The `github.event_name == 'schedule' || inputs.apply ==
+# true` form used below does not have this trap: `inputs.apply == true`
+# is only true when the dispatch input is the literal boolean true.
+#
+# Net behaviour:
+#   - schedule            -> ARMED: apply on, delete_broken_roots on,
+#                             budget from the workflow-level env below.
+#   - manual dispatch      -> DRY BY DEFAULT: `apply` input defaults to
+#                             false, so a human dispatching to look doesn't
+#                             delete unless they explicitly set apply=true.
+#   - dispatch apply=true  -> ARMED, exactly as requested.
+#   - dispatch apply=false -> stays DRY, exactly as requested (never
+#                             coerced to true by the schedule branch or by
+#                             a falsy-OR fallback).
+env:
+  # Single source for the scheduled run's deletion budget, so the number
+  # isn't duplicated between here and the `budget` input's dispatch
+  # default (which stays independent — see the input's own comment).
+  SCHEDULED_BUDGET: '500'
+
 on:
   schedule:
     - cron: '0 3 * * *'
@@ -82,9 +111,15 @@ on:
         type: string
         default: ''
       budget:
+        # 500 is sized against the inflow, not picked for comfort. A build adds
+        # roughly 70 versions a day across the images, so a budget much below
+        # that barely outpaces what arrives and the backlog never clears: at 100
+        # the net drain is ~30/day, which is over a year for the current 15,640.
+        # At 500 it drains in about six weeks while keeping any single run small
+        # enough to read.
         description: 'Stop after this many deletions in this run'
         type: string
-        default: '400'
+        default: '500'
       keep_all_tagged:
         description: >-
           Keep every tagged root regardless of age or count. Correct mode for
@@ -101,7 +136,7 @@ on:
           Reported in its own section either way; requires apply=true to
           actually delete anything.
         type: boolean
-        default: false
+        default: true
       retire_after_days:
         description: >-
           Retire job only: only retire (delete outright) a package whose
@@ -144,8 +179,19 @@ jobs:
           # still happens and fails with a clear diagnostic when the
           # secret is unset.
           GITHUB_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
-          APPLY: ${{ inputs.apply }}
+          # See the workflow header comment on `env:`/`on:` for why this
+          # branches on event_name instead of trusting `inputs.apply`
+          # directly: `inputs` is empty on a schedule run.
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+          # Empty on a schedule run is fine here without an explicit
+          # branch: retire.sh itself defaults AFTER_DAYS to 30 with
+          # `AFTER_DAYS="${AFTER_DAYS:-30}"` (bash `:-` treats an empty
+          # string the same as unset), so a blank `inputs.retire_after_days`
+          # on schedule still yields a working threshold, not 0/unset.
           AFTER_DAYS: ${{ inputs.retire_after_days }}
+          # Empty on a schedule run is CORRECT here, not a bug: retire.sh
+          # treats an empty RETIRE_PACKAGES as "every eligible package",
+          # which is exactly the right scope for the nightly job.
           RETIRE_PACKAGES: ${{ inputs.retire_packages }}
         run: .github/scripts/tidy-ghcr/retire.sh --json retire-plan.json
 
@@ -178,11 +224,27 @@ jobs:
           # still happens and fails with a clear diagnostic when the
           # secret is unset.
           GITHUB_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
-          APPLY: ${{ inputs.apply }}
+          # See the workflow header comment on `env:`/`on:` for why this
+          # branches on event_name instead of trusting `inputs.apply`
+          # directly: `inputs` is empty on a schedule run.
+          APPLY: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+          # Empty on a schedule run is CORRECT here, not a bug: prune.sh
+          # treats an empty PACKAGES as "every eligible package", which is
+          # exactly the right scope for the nightly job.
           PACKAGES: ${{ inputs.packages }}
-          BUDGET: ${{ inputs.budget }}
+          # Scheduled runs use the workflow-level SCHEDULED_BUDGET so the
+          # number lives in one place instead of being duplicated between
+          # here and the `budget` input's dispatch default.
+          BUDGET: ${{ github.event_name == 'schedule' && env.SCHEDULED_BUDGET || inputs.budget }}
+          # Empty on a schedule run is CORRECT here, not a bug: prune.sh
+          # only enables keep-all-tagged on the exact string "true", so an
+          # empty inputs.keep_all_tagged already yields the correct default
+          # (off) on schedule, matching the dispatch input's own default.
           KEEP_ALL_TAGGED: ${{ inputs.keep_all_tagged }}
-          DELETE_BROKEN_ROOTS: ${{ inputs.delete_broken_roots }}
+          # Scheduled runs arm remediation of pre-existing corruption
+          # (nginx/rover — see the workflow header comment) the same way
+          # APPLY is armed above; it is inert without APPLY=true.
+          DELETE_BROKEN_ROOTS: ${{ github.event_name == 'schedule' || inputs.delete_broken_roots == true }}
         run: .github/scripts/tidy-ghcr/prune.sh --json prune-plan.json
 
       - name: Upload prune plan
