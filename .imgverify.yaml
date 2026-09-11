@@ -1,0 +1,520 @@
+version: 1
+buildargs: buildargs.conf
+registry: ghcr.io/pyck-ai/baseimages
+
+# Transcribed 1:1 from pyck-ai/baseimages's docker/*/verify.sh (bash) into the
+# imgverify manifest schema. Checks are grouped per source image, and within
+# an image, target entries appear in the exact order the bash script executes
+# them — later entries in this file APPEND to a target's check list, and the
+# equivalence oracle compares bash vs TypeScript results positionally, so
+# reordering for tidiness would break that comparison.
+#
+# `$VARIANT` branches in the bash (`if [ "$VARIANT" = alpine ]`) become
+# separate `targets:` entries matching the specific bake target rather than a
+# runtime conditional — there is no conditional-on-variant construct in this
+# schema, by design.
+
+targets:
+  # ---------------------------------------------------------------------
+  # base — docker/base/verify.sh (18 check calls)
+  # ---------------------------------------------------------------------
+  - match: "base-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: writable
+        paths: [/app]
+        as: 1001
+      - kind: cmd
+        commands:
+          [
+            bash,
+            git,
+            curl,
+            wget,
+            jq,
+            rg,
+            rsync,
+            rclone,
+            tar,
+            unzip,
+            zip,
+            xz,
+            zstd,
+            gpg,
+            make,
+            gcc,
+            file,
+            gawk,
+            patch,
+            ssh,
+          ]
+      - kind: cmd
+        commands: [fd]
+      - kind: cmd
+        commands: [task, flyctl, gh, helm, kubectl, kustomize, watchexec]
+      - kind: version
+        run: "task --version"
+        contains: "${TASKFILE_VERSION}"
+      - kind: version
+        run: "flyctl --version"
+        contains: "version ${FLYCTL_VERSION}"
+      - kind: version
+        run: "gh --version"
+        contains: "version ${GHCLI_VERSION}"
+      - kind: version
+        run: "helm version"
+        contains: 'Version:"v${HELM_VERSION}"'
+      - kind: version
+        run: "kubectl version --client=true"
+        contains: "Client Version: v${KUBECTL_VERSION}"
+      - kind: version
+        run: "kustomize version"
+        contains: "v${KUSTOMIZE_VERSION}"
+      - kind: version
+        run: "watchexec --version"
+        contains: "watchexec ${WATCHEXEC_VERSION}"
+      - kind: file
+        paths: [/usr/local/sbin/download.sh]
+      - kind: sh
+        desc: "git safe.directory covers any path"
+        run: 'git config --system --get-all safe.directory | grep -qF "*"'
+      - kind: sh
+        desc: "CA certificates are usable"
+        run: "curl -sSf --max-time 20 https://github.com -o /dev/null"
+      - kind: sh
+        desc: "timezone is UTC"
+        run: '[ "$(date +%Z)" = "UTC" ]'
+  - match: "base-debian"
+    checks:
+      - kind: env
+        name: DEBIAN_FRONTEND
+        equals: noninteractive
+
+  # ---------------------------------------------------------------------
+  # agent — docker/agent/verify.sh (16 check calls)
+  # ---------------------------------------------------------------------
+  - match: "agent-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: env
+        name: BUN_INSTALL
+        equals: /bun
+      - kind: env
+        name: PATH
+        contains: /bun/bin
+      - kind: cmd
+        commands: [bun, node, pi, claude, opencode]
+      - kind: version
+        run: "bun --version"
+        contains: "${BUN_VERSION}"
+      - kind: version
+        run: "claude --version"
+        contains: "${CLAUDE_VERSION}"
+      - kind: version
+        run: "opencode --version"
+        contains: "${OPENCODE_VERSION}"
+      - kind: version
+        run: "pi --version"
+        contains: "${PI_VERSION}"
+      - kind: sh
+        desc: "node resolves to bun and runs in Node-compat mode"
+        run: '[ "$(readlink -f "$(command -v node)")" = /usr/local/bin/bun ] && node -e "process.exit(0)"'
+  - match: "agent-alpine"
+    checks:
+      - kind: env
+        name: LD_PRELOAD
+        equals: /usr/local/lib/claude_fix.so
+      - kind: file
+        paths: [/usr/local/lib/claude_fix.so]
+  - match: "agent-debian"
+    checks:
+      - kind: sh
+        desc: "no LD_PRELOAD shim on debian"
+        run: '[ -z "$${LD_PRELOAD:-}" ]'
+      - kind: sh
+        desc: "claude_fix.so absent on debian"
+        run: "[ ! -e /usr/local/lib/claude_fix.so ]"
+  - match: "agent-*"
+    checks:
+      - kind: writable
+        paths: [/bun, /bun/bin, /bun/install/global]
+        as: 1001
+      - kind: sh
+        desc: "bun add -g installs a binary that resolves on PATH"
+        run: "bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1"
+        as: 1001
+
+  # ---------------------------------------------------------------------
+  # typescript — docker/typescript/verify.sh (9 check calls)
+  # ---------------------------------------------------------------------
+  - match: "typescript-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: env
+        name: BUN_INSTALL
+        equals: /bun
+      - kind: env
+        name: PATH
+        contains: /bun/bin
+      - kind: cmd
+        commands: [bun]
+      - kind: version
+        run: "bun --version"
+        contains: "${BUN_VERSION}"
+      - kind: writable
+        paths: [/bun, /bun/bin, /bun/install/global]
+        as: 1001
+      - kind: sh
+        desc: "bun add -g installs a binary that resolves on PATH"
+        run: "bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1"
+        as: 1001
+      - kind: sh
+        desc: "node is absent"
+        run: "! command -v node >/dev/null 2>&1"
+
+  # ---------------------------------------------------------------------
+  # static — docker/static/verify.sh (5 check calls). FROM scratch: no
+  # shell, so only the inspect/export-only kinds (configUser, imageFile,
+  # workdir, env) apply — no run-based kind can be used here.
+  # ---------------------------------------------------------------------
+  - match: "static"
+    checks:
+      - kind: configUser
+        value: "1001"
+      - kind: workdir
+        value: /home/nonroot
+      - kind: env
+        name: SSL_CERT_FILE
+        equals: /etc/ssl/certs/ca-certificates.crt
+      - kind: env
+        name: HOME
+        equals: /home/nonroot
+      - kind: imageFile
+        paths:
+          - /etc/passwd
+          - /etc/group
+          - /etc/ssl/certs/ca-certificates.crt
+          - /etc/localtime
+          - /usr/share/zoneinfo
+          - /tmp
+          - /home/nonroot
+
+  # ---------------------------------------------------------------------
+  # rover — docker/rover/verify.sh (4 check calls). Only rover-debian is a
+  # real bake target (rover ships glibc-only binaries), so this matches the
+  # single concrete target rather than a "rover-*" glob.
+  # ---------------------------------------------------------------------
+  - match: "rover-debian"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: cmd
+        commands: [rover]
+      - kind: version
+        run: "rover --version"
+        contains: "${ROVER_VERSION}"
+
+  # ---------------------------------------------------------------------
+  # python — docker/python/verify.sh (13 check calls)
+  # ---------------------------------------------------------------------
+  - match: "python-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: env
+        name: UV_PYTHON_INSTALL_DIR
+        equals: /usr/local/python
+      - kind: env
+        name: UV_PYTHON_PREFERENCE
+        equals: only-managed
+      - kind: env
+        name: PYTHONDONTWRITEBYTECODE
+        equals: "1"
+      - kind: env
+        name: PYTHONUNBUFFERED
+        equals: "1"
+      - kind: cmd
+        commands: [uv, uvx, ruff, python, python3, pip, pip3, pydoc, pydoc3]
+      - kind: version
+        run: "uv --version"
+        contains: "${UV_VERSION}"
+      - kind: version
+        run: "ruff --version"
+        contains: "${RUFF_VERSION}"
+      - kind: version
+        run: "python --version"
+        contains: "${PYTHON_VERSION}"
+      - kind: writable
+        paths: [/usr/local/python]
+        as: 1001
+      - kind: sh
+        desc: "python runs"
+        run: 'python -c "print(1)"'
+      - kind: sh
+        desc: "uv venv works unprivileged"
+        run: 'd=$(mktemp -d) && cd "$d" && uv venv'
+        as: 1001
+
+  # ---------------------------------------------------------------------
+  # nginx — docker/nginx/verify.sh (6 check calls). No shell-based checks
+  # at all — nginx-unprivileged has a shell (used for `sh`'s nginx -t), but
+  # both `check_host` call sites map onto typed kinds rather than a raw
+  # host escape: the ExposedPorts inspection is `exposedPort`, and the
+  # publish-and-curl probe is `http`.
+  # ---------------------------------------------------------------------
+  - match: "nginx"
+    checks:
+      - kind: user
+        uid: 101
+        name: nginx
+      - kind: workdir
+        value: /app
+      - kind: file
+        paths:
+          - /etc/nginx/nginx.conf
+          - /etc/nginx/conf.d/default.conf
+          - /etc/nginx/conf.d/otel.conf
+          - /app/index.html
+      - kind: exposedPort
+        port: 8080
+        protocol: tcp
+      - kind: sh
+        desc: "shipped nginx.conf parses (nginx -t)"
+        run: "nginx -t"
+      - kind: http
+        desc: "serves the placeholder page over HTTP"
+        containerPort: 8080
+        path: /
+        expectStatus: 200
+        retries: 4
+        retryDelayMs: 1000
+
+  # ---------------------------------------------------------------------
+  # golang — docker/golang/verify.sh (18 check calls)
+  # ---------------------------------------------------------------------
+  - match: "golang-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: env
+        name: GOPATH
+        equals: /go
+      - kind: env
+        name: GOCACHE
+        equals: /var/cache/go/
+      - kind: env
+        name: GOMODCACHE
+        equals: /go/pkg/mod/
+      - kind: env
+        name: GOPROXY
+        equals: https://go.pyck.cloud,direct
+      - kind: env
+        name: CGO_ENABLED
+        equals: "0"
+      - kind: env
+        name: PATH
+        contains: /usr/local/go/bin
+      - kind: env
+        name: PATH
+        contains: /go/bin
+      - kind: cmd
+        commands: [go, gofmt, dlv, golangci-lint, gotestsum, go-arch-lint]
+      - kind: version
+        run: "go version"
+        contains: "go${GOLANG_VERSION}"
+      - kind: version
+        run: "dlv version"
+        contains: "Version: ${DELVE_VERSION}"
+      - kind: version
+        run: "golangci-lint --version"
+        contains: "version ${GOLANGCILINT_VERSION}"
+      - kind: version
+        run: "gotestsum --version"
+        contains: "version v${GOTESTSUM_VERSION}"
+      - kind: version
+        run: "go-arch-lint version --output-color=false"
+        contains: "version: ${GOARCHLINT_VERSION}"
+      - kind: writable
+        paths: [/go, /go/bin, /go/pkg/mod, /var/cache/go]
+        as: 1001
+      - kind: sh
+        desc: "go build works end-to-end (exercises GOCACHE/GOMODCACHE)"
+        run: |-
+          d=$(mktemp -d) && cd "$d" && go mod init smoke && echo "package main
+          func main() {}" > main.go && go build .
+        as: 1001
+      - kind: sh
+        desc: "go install writes to /go/bin"
+        run: |-
+          d=$(mktemp -d) && cd "$d" && go mod init smoke && echo "package main
+          func main() {}" > main.go && go install . && [ -x /go/bin/smoke ]
+        as: 1001
+
+  # ---------------------------------------------------------------------
+  # all-in-one — docker/all-in-one/verify.sh (34 check calls)
+  # ---------------------------------------------------------------------
+  - match: "all-in-one-*"
+    checks:
+      - kind: user
+        uid: 0
+        name: root
+      - kind: workdir
+        value: /app
+      - kind: env
+        name: GOPATH
+        equals: /go
+      - kind: env
+        name: GOCACHE
+        equals: /var/cache/go/
+      - kind: env
+        name: GOMODCACHE
+        equals: /go/pkg/mod/
+      - kind: env
+        name: GOPROXY
+        equals: https://go.pyck.cloud,direct
+      - kind: env
+        name: CGO_ENABLED
+        equals: "0"
+      - kind: env
+        name: BUN_INSTALL
+        equals: /bun
+      - kind: env
+        name: UV_PYTHON_INSTALL_DIR
+        equals: /usr/local/python
+      - kind: env
+        name: UV_PYTHON_PREFERENCE
+        equals: only-managed
+      - kind: env
+        name: PYTHONDONTWRITEBYTECODE
+        equals: "1"
+      - kind: env
+        name: PYTHONUNBUFFERED
+        equals: "1"
+      - kind: env
+        name: PATH
+        contains: /go/bin
+      - kind: env
+        name: PATH
+        contains: /bun/bin
+      - kind: cmd
+        commands:
+          [
+            go,
+            gofmt,
+            dlv,
+            golangci-lint,
+            gotestsum,
+            go-arch-lint,
+            bun,
+            node,
+            pi,
+            claude,
+            opencode,
+            python,
+            python3,
+            pip,
+            uv,
+            uvx,
+            ruff,
+          ]
+      - kind: version
+        run: "go version"
+        contains: "go${GOLANG_VERSION}"
+      - kind: version
+        run: "bun --version"
+        contains: "${BUN_VERSION}"
+      - kind: version
+        run: "claude --version"
+        contains: "${CLAUDE_VERSION}"
+      - kind: version
+        run: "opencode --version"
+        contains: "${OPENCODE_VERSION}"
+      - kind: version
+        run: "pi --version"
+        contains: "${PI_VERSION}"
+      - kind: version
+        run: "python --version"
+        contains: "${PYTHON_VERSION}"
+      - kind: version
+        run: "uv --version"
+        contains: "${UV_VERSION}"
+      - kind: version
+        run: "ruff --version"
+        contains: "${RUFF_VERSION}"
+  - match: "all-in-one-debian"
+    checks:
+      - kind: cmd
+        commands: [rover]
+      - kind: version
+        run: "rover --version"
+        contains: "${ROVER_VERSION}"
+  - match: "all-in-one-alpine"
+    checks:
+      - kind: sh
+        desc: "rover absent on alpine"
+        run: "! command -v rover >/dev/null 2>&1"
+  - match: "all-in-one-alpine"
+    checks:
+      - kind: env
+        name: LD_PRELOAD
+        equals: /usr/local/lib/claude_fix.so
+      - kind: file
+        paths: [/usr/local/lib/claude_fix.so]
+  - match: "all-in-one-debian"
+    checks:
+      - kind: sh
+        desc: "no LD_PRELOAD shim on debian"
+        run: '[ -z "$${LD_PRELOAD:-}" ]'
+      - kind: sh
+        desc: "claude_fix.so absent on debian"
+        run: "[ ! -e /usr/local/lib/claude_fix.so ]"
+  - match: "all-in-one-*"
+    checks:
+      - kind: writable
+        paths:
+          [
+            /go,
+            /go/bin,
+            /go/pkg/mod,
+            /var/cache/go,
+            /bun,
+            /bun/bin,
+            /bun/install/global,
+            /usr/local/python,
+          ]
+        as: 1001
+      - kind: sh
+        desc: "go build works end-to-end"
+        run: |-
+          d=$(mktemp -d) && cd "$d" && go mod init smoke && echo "package main
+          func main() {}" > main.go && go build .
+        as: 1001
+      - kind: sh
+        desc: "bun add -g installs a binary that resolves on PATH"
+        run: "bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1"
+        as: 1001
+      - kind: sh
+        desc: "python runs"
+        run: 'python -c "print(1)"'
+        as: 1001
