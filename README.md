@@ -9,6 +9,7 @@ The images fall into a few kinds:
 - **Base** — a hardened Alpine + Debian foundation with common tooling. Other images may build on it, but single-purpose images are not required to.
 - **Developer tooling** — single-purpose language toolchains, package managers, and coding-agent CLIs. Each targets one kind of project, and all are bundled into `all-in-one`.
 - **All-in-one** — the full developer-tooling set in one image, for local development where juggling many images isn't worth it. Not intended for CI (size and attack surface).
+- **CI runner** — `all-in-one` plus the GitHub Actions runner agent and rootless BuildKit, for the self-hosted ARC pool. The one image in this repo built *for* CI.
 - **Runtime & deployment** — single-purpose images that run or serve an application rather than build one. Consumed standalone and intentionally excluded from `all-in-one`.
 
 ### Conventions
@@ -18,9 +19,10 @@ Default `USER` follows the image's role:
 | Role | Images | Default user | Nonroot escape hatch |
 |------|--------|---------------|-----------------------|
 | Build substrate / developer tooling | `base`, `golang`, `python`, `typescript`, `rover`, `agent`, `all-in-one` | `root` (uid 0) | `--user 1001` drops to the `nonroot` account; each image's tool dirs are nonroot-owned |
+| CI runner | `runner` (1001) | nonroot | none needed — passwordless `sudo` is built in, as in upstream's runner image |
 | Runtime / deployment | `nginx` (101), `static` (1001) | nonroot | `--user 0` elevates to root, e.g. to install packages or use the image as a build environment |
 
-Build-substrate images default to root so they work as GitHub Actions job containers: GHA runs steps as the image's `USER`, and steps routinely install packages (apt/apk) and write outside the workspace — the same reason the official `golang`/`python` images default to root. The `nonroot` account is uid/gid **1001** to match the uid our runners execute as ([`deployment/Dockerfile.runner`](https://github.com/pyck-ai/deployment/blob/main/Dockerfile.runner)), so the bind-mounted workspace stays writable and `actions/checkout` (git "dubious ownership"), `$GITHUB_ENV` and `$GITHUB_OUTPUT` keep working whenever an image does run as nonroot. Runtime images keep nonroot for deployment security. `WORKDIR` is `/app` for the images that use it; see each image's README for exceptions (`static` uses `/home/nonroot`).
+Build-substrate images default to root so they work as GitHub Actions job containers: GHA runs steps as the image's `USER`, and steps routinely install packages (apt/apk) and write outside the workspace — the same reason the official `golang`/`python` images default to root. The `nonroot` account is uid/gid **1001** to match the uid the GitHub Actions runner executes as (upstream's [`actions-runner`](https://github.com/actions/runner/blob/main/images/Dockerfile) image creates its `runner` user with uid 1001, and our [`runner`](docker/runner/README.md) image inherits that), so the bind-mounted workspace stays writable and `actions/checkout` (git "dubious ownership"), `$GITHUB_ENV` and `$GITHUB_OUTPUT` keep working whenever an image does run as nonroot. `runner` itself defaults to nonroot because ARC runs the pod as the image's `USER` and the agent refuses root. Runtime images keep nonroot for deployment security. `WORKDIR` is `/app` for the images that use it; see each image's README for exceptions (`static` uses `/home/nonroot`, `runner` uses `/home/runner`).
 
 ### Base
 
@@ -45,6 +47,12 @@ Single-purpose tooling images, all bundled into `all-in-one`.
 | Image | Description |
 |-------|-------------|
 | [`all-in-one`](docker/all-in-one/README.md) | Every developer-tooling image combined for local development; excludes the runtime & deployment images (nginx, static) |
+
+### CI runner
+
+| Image | Description |
+|-------|-------------|
+| [`runner`](docker/runner/README.md) | `all-in-one` + GitHub Actions runner agent + rootless BuildKit, for the `self-hosted-kata` ARC pool; runner pod and job container in one (Debian only) |
 
 ### Runtime & deployment
 
@@ -178,6 +186,12 @@ graph LR
   typescript-debian --> aio-debian
   rover --> aio-debian
   python-debian --> aio-debian
+
+  actions-runner["ghcr.io/actions/actions-runner"]
+  buildkit-rootless["moby/buildkit:rootless"]
+  aio-debian --> runner
+  actions-runner --> runner
+  buildkit-rootless --> runner
 
   nginx-base --> nginx
 ```

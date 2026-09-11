@@ -22,6 +22,8 @@ variable "PI_VERSION" {}
 variable "BUN_VERSION" {}
 variable "PYTHON_VERSION" {}
 variable "ROVER_VERSION" {}
+variable "ACTIONS_RUNNER_VERSION" {}
+variable "BUILDKIT_VERSION" {}
 
 # Returns version tags for a given image, supporting 1-, 2-, or 3-part versions.
 # prefix/suffix wrap each version segment (e.g., prefix="alpine-" or suffix="-alpine").
@@ -61,7 +63,7 @@ target "_common" {
 group "default" {
   targets = [
     "base", "golang", "python", "typescript", "agent",
-    "rover", "all-in-one", "nginx", "static",
+    "rover", "all-in-one", "runner", "nginx", "static",
   ]
 }
 
@@ -412,4 +414,34 @@ target "all-in-one-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian,mode=max"]
+}
+
+
+# ==============================================================================
+# RUNNER
+# ==============================================================================
+#
+# all-in-one + the GitHub Actions runner agent + rootless BuildKit, for the
+# self-hosted-kata ARC pool (pyck-ai/deployment). Serves as both the runner pod
+# image and as a job `container:`. Debian only — the agent is a glibc .NET app.
+#
+# Version tags are namespaced per tool like agent/all-in-one: the runner version
+# is the one GitHub can deprecate out from under us, so it gets the bare tags.
+
+target "runner" {
+  inherits = ["_common"]
+  context = "./docker/runner"
+  dockerfile = "Dockerfile.debian"
+  contexts = {
+    "all-in-one"    = "target:all-in-one-debian"
+    "actionsrunner" = "docker-image://ghcr.io/actions/actions-runner:${ACTIONS_RUNNER_VERSION}"
+    "buildkit"      = "docker-image://moby/buildkit:v${BUILDKIT_VERSION}-rootless"
+  }
+  tags = concat(
+    ["${REGISTRY}/runner:latest", "${REGISTRY}/runner:debian"],
+    vtags(REGISTRY, "runner", ACTIONS_RUNNER_VERSION, "", ""),
+    vtags(REGISTRY, "runner", BUILDKIT_VERSION, "buildkit-", ""),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:runner"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:runner,mode=max"]
 }
