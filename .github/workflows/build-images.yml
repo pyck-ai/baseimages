@@ -38,7 +38,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@0f2a51087bbeabb41edbf92ed2b248532e7a4602
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@36fe92de27e184692ef6273b0f5ddb7081db34d6
     with:
       # Must match .imgverify.yaml's expected registry: the shared verify step
       # exports REGISTRY into imgverify's environment, and imgverify resolves
