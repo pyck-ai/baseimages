@@ -1932,21 +1932,47 @@ if [ "$APPLY" -eq 1 ]; then
     # genuinely failed after retries reaches the failure branch. Budget is
     # still spent exactly once per version either way — it tracks "one
     # version processed this run", not "one bare HTTP attempt".
-    while IFS=$'\t' read -r id digest; do
+    #
+    # S8 (flutter-rfw incident): if a TAGGED root's delete fails (even
+    # after request_with_retry's own retries), stop processing the REST
+    # of this package's delete list rather than continuing on to what the
+    # tagged-first sort_by above guarantees are its untagged children.
+    # This loop has no parent-to-child edge info, only that ordering — so
+    # once a tagged entry has failed, everything remaining in this
+    # package's list is untagged and might be that very root's children.
+    # There is no way to tell which, so abandoning the rest of the
+    # package is the only safe response: leaving untagged garbage behind
+    # for the next run costs storage, but deleting a tagged root's
+    # children out from under it leaves a tag resolving to an index whose
+    # children 404 — unpullable, while looking healthy from the outside.
+    # That is exactly the failure mode that hollowed out flutter-rfw's
+    # published image. Budget is still spent and DELETE_FAILURES still
+    # incremented for the failed entry before breaking, so REMAINING and
+    # the exit-code ladder (DELETE_FAILURES > 0 => exit 1) stay accurate;
+    # an untagged entry's failure does NOT abort the package, since
+    # nothing kept points at an unreachable untagged version and its own
+    # children (if any) are already in the delete set for a later retry.
+    while IFS=$'\t' read -r id digest tag_count; do
       [ -z "$id" ] && continue
       [ "$BUDGET_LEFT" -le 0 ] && break
       status=$(request_with_retry "https://api.github.com/orgs/${OWNER}/packages/container/${enc}/versions/${id}" "$GITHUB_ACCEPT" "Authorization: Bearer ${GH_TOKEN_VALUE}" "$VERDEL_BODY" "$VERDEL_HEADERS" DELETE)
       if [ "$status" != "204" ] && [ "$status" != "200" ]; then
         log_warn "failed to delete ${pkg_name} version ${id} (status ${status})"
         DELETE_FAILURES=$((DELETE_FAILURES + 1))
-      else
-        package_deleted=1
-        ACTUAL_DELETED=$((ACTUAL_DELETED + 1))
-        log_info "DELETED ${pkg_name} ${digest}"
+        BUDGET_LEFT=$((BUDGET_LEFT - 1))
+        if [ "${tag_count:-0}" -gt 0 ]; then
+          log_err "ABANDONING remainder of ${pkg_name}'s delete list: tagged root ${digest} (version ${id}) failed to delete, and everything after it in the tagged-first order may be that root's now-unsafe-to-delete children"
+          break
+        fi
+        sleep 1
+        continue
       fi
+      package_deleted=1
+      ACTUAL_DELETED=$((ACTUAL_DELETED + 1))
+      log_info "DELETED ${pkg_name} ${digest}"
       BUDGET_LEFT=$((BUDGET_LEFT - 1))
       sleep 1
-    done < <(jq -r '.delete | sort_by((.tags | length) == 0) | .[] | [.id, .digest] | @tsv' "$WORKDIR/plan-${image}.json")
+    done < <(jq -r '.delete | sort_by((.tags | length) == 0) | .[] | [.id, .digest, (.tags | length)] | @tsv' "$WORKDIR/plan-${image}.json")
 
     if [ "$package_deleted" -eq 1 ]; then
       APPLIED_PACKAGES+=("$image")
