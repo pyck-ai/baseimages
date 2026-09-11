@@ -4,7 +4,7 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 
 **Scope: base images only.** An image belongs here if it is a generic, reusable substrate that many projects build `FROM` or pull standalone, and does not belong here if it serves a single project or product. The dividing line is generic versus project-specific, not build-time versus runtime — `nginx` and `static` run an application rather than build one and still belong, because many projects consume them. Two kinds of image that do not:
 
-- **Standalone application images.** `flutter` was one; it moved to its own repository (see [Deprecated tags](#deprecated-tags)).
+- **Standalone application images.** `flutter` was one; it moved to [`pyck-ai/flutter-rfw`](https://github.com/pyck-ai/flutter-rfw).
 - **GitHub Actions runner images.** Those live with the deployment tooling, in [`deployment/Dockerfile.runner`](https://github.com/pyck-ai/deployment/blob/main/Dockerfile.runner).
 
 `docker-bake.hcl` is the source of truth for the registry: a target removed from it stops being built and is eventually cleaned out of GHCR, so a one-project image parked here does not survive on its own.
@@ -62,24 +62,6 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 | [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
 | [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
 
-
-## Deprecated tags
-
-> [!WARNING]
-> The images and tags below are **no longer built** and are **scheduled for
-> removal without further announcement**. Migrate to the replacement — for the
-> renamed repositories keep the tag and only change the name (e.g.
-> `slim:alpine` → `base:alpine`).
-
-| Deprecated | Replacement |
-|------------|-------------|
-| `slim` | `base` |
-| `agents` | `agent` |
-| `alpine:latest` | `all-in-one:alpine` |
-| `debian:latest` | `all-in-one:debian` |
-| `rover:debian` | `rover:latest` |
-| `rover:<version>-debian` | `rover:<version>` |
-| `flutter` | [`ghcr.io/pyck-ai/flutter-rfw`](https://github.com/pyck-ai/flutter-rfw) |
 
 ## Versioning
 
