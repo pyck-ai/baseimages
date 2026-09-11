@@ -40,7 +40,7 @@ jobs:
   # Read all stage target lists from the bake file so new images
   # are automatically picked up by the parallel build matrices without touching CI.
   discover:
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
       bakeargs-set: ${{ steps.targets.outputs.bakeargs-set }}
@@ -62,7 +62,7 @@ jobs:
   # times per run — see the comment above `group "default"` in docker-bake.hcl).
   build:
     needs: [discover]
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     timeout-minutes: 60
     strategy:
       # Without fail-fast: false, the default fail-fast: true cancels sibling
@@ -152,7 +152,7 @@ jobs:
   # one runner, which duplicated work the matrices had already done.
   verify:
     needs: [build]
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -184,7 +184,7 @@ jobs:
   publish:
     needs: [discover, verify]
     if: github.event_name != 'pull_request'
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -220,7 +220,7 @@ jobs:
   gate:
     needs: [discover, build, verify, publish]
     if: always()
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     steps:
       # Needed because the check below lives in a script file. While it was an
       # inline run block this job required no working copy at all.

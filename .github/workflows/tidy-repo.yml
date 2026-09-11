@@ -37,7 +37,7 @@ jobs:
   # Delete workflow runs older than WORKFLOWS_RETAIN_DAYS, keeping at least 1 per workflow.
   clean-old-workflow-runs:
     name: Delete old workflow runs
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     permissions:
       actions: write
     steps:
@@ -56,7 +56,7 @@ jobs:
   clean-stale-issues-and-prs:
     name: Close stale issues and PRs
     needs: clean-old-workflow-runs
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     permissions:
       pull-requests: write
     steps:
@@ -80,7 +80,7 @@ jobs:
   clean-stale-branches:
     name: Delete stale branches
     needs: clean-stale-issues-and-prs
-    runs-on: self-hosted
+    runs-on: self-hosted-kata
     permissions:
       contents: write
     steps:
