@@ -31,45 +31,35 @@ README files in this repository document what each Docker image contains. Keep t
 - New environment variable added or an existing one changed: update the ENV table.
 - Default user or WORKDIR changed: update the "Default user" section.
 
-**When an image is added**, create a README and a `verify.sh` in the new image's directory following the style of the existing ones, then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is added**, create a README in the new image's directory following the style of the existing ones, add its checks to [`.imgverify.yaml`](.imgverify.yaml), then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
-**When an image is removed**, delete its README and `verify.sh`, and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is removed**, delete its README and its target from [`.imgverify.yaml`](.imgverify.yaml), and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
 **When an image is renamed** (tag or directory), update all references in the root [`README.md`](README.md) and any cross-links between image READMEs.
 
 ## Image verification
 
-Every image directory has a `verify.sh` that checks the **assembled** image: default
-user, `WORKDIR`, `ENV`, tool versions against `buildargs.conf`, directory writability,
-and a smoke test of what the image is for. It is run by `task verify` and shares helpers
-from [`docker/verify-lib.sh`](docker/verify-lib.sh).
+Verification lives in [`.imgverify.yaml`](.imgverify.yaml) at the repo root: a per-target
+list of checks against the **assembled** image — default user, `WORKDIR`, `ENV`, tool
+versions against `buildargs.conf`, directory writability, and a smoke test of what the
+image is for.
 
-Locally `task verify` builds with `--load` and checks the images in the local daemon. In
-CI the same per-image scripts run unchanged, but against the exact digests the build
-pushed: the stages push every target **by digest with no tags**, and the `verify` job
-runs `./verify.sh --digests <file>`, which resolves each target to `<repo>@<digest>` and
-pulls it. A separate `publish` job applies the tags only after that passes, so a failed
-check means the tags never move. Write per-image checks against the image ref in `$1` and
-nothing else — that is what keeps both modes working from one script.
+CI runs it against the exact digest the build pushed, before any tag moves: the build
+stage pushes every target **by digest with no tags**, the verify step resolves each
+target to `<repo>@<digest>` and pulls it, and a separate publish step applies the tags
+only after that passes. A failed check means the tags never move.
 
 This is not the same as `download.sh --verify`, which checks a tool inside the stage
 that installed it. A missing binary, a root-owned cache directory, or a typo'd `USER`
 all build green and only surface once the image is run — that class of bug is what
-`verify.sh` exists to catch.
+`.imgverify.yaml` exists to catch.
 
-Each `verify.sh` must assert its role's default user (`check_user … root 0` for `base` +
-the developer-tooling set + `all-in-one`; the image's nonroot uid for `nginx` and
-`static`) and, for the root-default images, must also assert the tool dirs and toolchain
-smoke test still work under `--user 1001` (the `check_writable_as 1001` /
-`check_shell_cmd_as 1001` helpers). Every taggable image **must** ship a `verify.sh` —
-the driver fails, not skips, if one is missing.
+**When a Dockerfile changes**, update `.imgverify.yaml` — not a per-image script:
 
-**When a Dockerfile changes**, update that image's `verify.sh` alongside its README:
-
-- Tool added, removed, or renamed: update the `check_cmd` / `check_version` calls.
-- New environment variable, or a changed value: update the `check_env` calls.
-- Default user or WORKDIR changed: update `check_user` / `check_workdir`.
-- A new directory the image must write to at runtime: add it to `check_writable`.
+- Tool added, removed, or renamed: update the version/command checks for that target.
+- New environment variable, or a changed value: update the `ENV` checks.
+- Default user or WORKDIR changed: update the user/workdir checks.
+- A new directory the image must write to at runtime: add a writability check for it.
 
 Ground every check in the Dockerfile. Do not assert something the image does not
 actually promise, and prefer a check that exercises real behaviour (`go build`) over one
