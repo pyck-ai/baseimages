@@ -5,92 +5,159 @@
 #     -v $PWD/docker/all-in-one/verify.sh:/verify.sh:ro --entrypoint /bin/sh <ref> /verify.sh
 
 fails=0
-ck() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+ok()  { echo "ok   $*"; }
+bad() { echo "FAIL $*"; fails=$((fails + 1)); }
+
+check_user() {
+    if [ "$(id -u)" = "$1" ]; then ok "runs as uid $1"; else bad "runs as uid $(id -u), want $1"; fi
+}
+
+check_workdir() {
+    if [ "$(pwd)" = "$1" ]; then ok "workdir is $1"; else bad "workdir is $(pwd), want $1"; fi
+}
+
+check_env() {
+    if [ "$(printenv "$1")" = "$2" ]; then ok "$1=$2"; else bad "$1=$(printenv "$1"), want $2"; fi
+}
+
+check_cmd() {
+    missing=
+    for c in "$@"; do
+        command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
+    done
+    if [ -z "$missing" ]; then ok "on PATH: $*"; else bad "not on PATH:$missing"; fi
+}
+
+check_file() {
+    missing=
+    for f in "$@"; do
+        [ -e "$f" ] || missing="$missing $f"
+    done
+    if [ -z "$missing" ]; then ok "present: $*"; else bad "absent:$missing"; fi
+}
+
+# Runs a command and looks for a substring, so a version bump in buildargs.conf
+# fails the check instead of silently passing.
+check_version() {
+    out=$(sh -c "$1" 2>&1)
+    case "$out" in
+        *"$2"*) ok "$1 reports $2" ;;
+        *)      bad "$1 does not report $2: $out" ;;
+    esac
+}
 
 # These directories are chowned to nonroot explicitly in the Dockerfile
 # because each toolchain's own build stage installs as root.
-writable_toolchains() {
-    su -s /bin/sh -c '
-        for d in /go /go/bin /go/pkg/mod /var/cache/go /bun /bun/bin /bun/install/global /usr/local/python; do
-            mkdir -p "$d" && touch "$d/.wprobe" && rm -f "$d/.wprobe" || exit 1
-        done
-    ' nonroot
-}
-
-go_build_e2e() {
-    su -s /bin/sh -c '
-        d=$(mktemp -d) && cd "$d" && go mod init smoke &&
-        printf "package main\nfunc main() {}\n" > main.go &&
-        go build .
-    ' nonroot
-}
-
-bun_cowsay() {
-    su -s /bin/sh -c 'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1' nonroot
-}
-
-python_smoke() {
-    su -s /bin/sh -c 'python -c "print(1)"' nonroot
-}
-
-ck "runs as root (uid 0)" '[ "$(id -u)" = 0 ]'
-ck "WORKDIR is /app" '[ "$(pwd)" = /app ]'
-
-ck "GOPATH=/go" '[ "$GOPATH" = /go ]'
-ck "GOCACHE=/var/cache/go/" '[ "$GOCACHE" = /var/cache/go/ ]'
-ck "GOMODCACHE=/go/pkg/mod/" '[ "$GOMODCACHE" = /go/pkg/mod/ ]'
-ck "GOPROXY=https://go.pyck.cloud,direct" '[ "$GOPROXY" = "https://go.pyck.cloud,direct" ]'
-ck "CGO_ENABLED=0" '[ "$CGO_ENABLED" = 0 ]'
-ck "BUN_INSTALL=/bun" '[ "$BUN_INSTALL" = /bun ]'
-ck "UV_PYTHON_INSTALL_DIR=/usr/local/python" '[ "$UV_PYTHON_INSTALL_DIR" = /usr/local/python ]'
-ck "UV_PYTHON_PREFERENCE=only-managed" '[ "$UV_PYTHON_PREFERENCE" = only-managed ]'
-ck "PYTHONDONTWRITEBYTECODE=1" '[ "$PYTHONDONTWRITEBYTECODE" = 1 ]'
-ck "PYTHONUNBUFFERED=1" '[ "$PYTHONUNBUFFERED" = 1 ]'
-ck "PATH contains /go/bin" 'case "$PATH" in *"/go/bin"*) true ;; *) false ;; esac'
-ck "PATH contains /bun/bin" 'case "$PATH" in *"/bun/bin"*) true ;; *) false ;; esac'
-
-ck "on PATH: go gofmt dlv golangci-lint gotestsum go-arch-lint bun node pi claude opencode python python3 pip uv uvx ruff" '
-    for c in go gofmt dlv golangci-lint gotestsum go-arch-lint bun node pi claude opencode python python3 pip uv uvx ruff; do
-        command -v "$c" >/dev/null 2>&1 || exit 1
+check_writable_as() {
+    u=$1
+    shift
+    missing=
+    for d in "$@"; do
+        su "$u" -s /bin/sh -c "mkdir -p '$d/.verify' && rmdir '$d/.verify'" 2>/dev/null || missing="$missing $d"
     done
-'
+    if [ -z "$missing" ]; then ok "writable by $u: $*"; else bad "not writable by $u:$missing"; fi
+}
 
-ck "go version reports go$GOLANG_VERSION" 'go version 2>&1 | grep -qF "go$GOLANG_VERSION"'
-ck "bun --version reports $BUN_VERSION" 'bun --version 2>&1 | grep -qF "$BUN_VERSION"'
-ck "claude --version reports $CLAUDE_VERSION" 'claude --version 2>&1 | grep -qF "$CLAUDE_VERSION"'
-ck "opencode --version reports $OPENCODE_VERSION" 'opencode --version 2>&1 | grep -qF "$OPENCODE_VERSION"'
-ck "pi --version reports $PI_VERSION" 'pi --version 2>&1 | grep -qF "$PI_VERSION"'
-ck "python --version reports $PYTHON_VERSION" 'python --version 2>&1 | grep -qF "$PYTHON_VERSION"'
-ck "uv --version reports $UV_VERSION" 'uv --version 2>&1 | grep -qF "$UV_VERSION"'
-ck "ruff --version reports $RUFF_VERSION" 'ruff --version 2>&1 | grep -qF "$RUFF_VERSION"'
+check_user 0
+check_workdir /app
+
+check_env GOPATH /go
+check_env GOCACHE /var/cache/go/
+check_env GOMODCACHE /go/pkg/mod/
+check_env GOPROXY "https://go.pyck.cloud,direct"
+check_env CGO_ENABLED 0
+check_env BUN_INSTALL /bun
+check_env UV_PYTHON_INSTALL_DIR /usr/local/python
+check_env UV_PYTHON_PREFERENCE only-managed
+check_env PYTHONDONTWRITEBYTECODE 1
+check_env PYTHONUNBUFFERED 1
+
+if case "$PATH" in *"/go/bin"*) true ;; *) false ;; esac; then
+    ok "PATH contains /go/bin"
+else
+    bad "PATH contains /go/bin"
+fi
+
+if case "$PATH" in *"/bun/bin"*) true ;; *) false ;; esac; then
+    ok "PATH contains /bun/bin"
+else
+    bad "PATH contains /bun/bin"
+fi
+
+check_cmd go gofmt dlv golangci-lint gotestsum go-arch-lint bun node pi claude opencode python python3 pip uv uvx ruff
+
+check_version "go version"         "go$GOLANG_VERSION"
+check_version "bun --version"      "$BUN_VERSION"
+check_version "claude --version"   "$CLAUDE_VERSION"
+check_version "opencode --version" "$OPENCODE_VERSION"
+check_version "pi --version"       "$PI_VERSION"
+check_version "python --version"   "$PYTHON_VERSION"
+check_version "uv --version"       "$UV_VERSION"
+check_version "ruff --version"     "$RUFF_VERSION"
 
 # rover ships glibc binaries only, so it is Debian-only; assert both sides of
 # the split so this cannot silently drift.
 case "$TARGET" in
     *-debian)
-        ck "on PATH: rover" 'command -v rover >/dev/null 2>&1'
-        ck "rover --version reports $ROVER_VERSION" 'rover --version 2>&1 | grep -qF "$ROVER_VERSION"'
+        check_cmd rover
+        check_version "rover --version" "$ROVER_VERSION"
         ;;
     *-alpine)
-        ck "rover absent on alpine" '! command -v rover >/dev/null 2>&1'
+        if ! command -v rover >/dev/null 2>&1; then
+            ok "rover absent on alpine"
+        else
+            bad "rover absent on alpine"
+        fi
         ;;
 esac
 
 case "$TARGET" in
     *-alpine)
         # The official Claude binaries are musl-incompatible without this shim.
-        ck "LD_PRELOAD=/usr/local/lib/claude_fix.so" '[ "$LD_PRELOAD" = /usr/local/lib/claude_fix.so ]'
-        ck "present: /usr/local/lib/claude_fix.so" '[ -e /usr/local/lib/claude_fix.so ]'
+        check_env LD_PRELOAD /usr/local/lib/claude_fix.so
+        check_file /usr/local/lib/claude_fix.so
         ;;
     *-debian)
-        ck "no LD_PRELOAD shim on debian" '[ -z "${LD_PRELOAD:-}" ]'
-        ck "claude_fix.so absent on debian" '[ ! -e /usr/local/lib/claude_fix.so ]'
+        if [ -z "${LD_PRELOAD:-}" ]; then
+            ok "no LD_PRELOAD shim on debian"
+        else
+            bad "no LD_PRELOAD shim on debian"
+        fi
+        if [ ! -e /usr/local/lib/claude_fix.so ]; then
+            ok "claude_fix.so absent on debian"
+        else
+            bad "claude_fix.so absent on debian"
+        fi
         ;;
 esac
 
-ck "writable by uid 1001: /go /go/bin /go/pkg/mod /var/cache/go /bun /bun/bin /bun/install/global /usr/local/python" writable_toolchains
-ck "go build works end-to-end" go_build_e2e
-ck "bun add -g installs a binary that resolves on PATH" bun_cowsay
-ck "python runs" python_smoke
+check_writable_as nonroot /go /go/bin /go/pkg/mod /var/cache/go /bun /bun/bin /bun/install/global /usr/local/python
+
+# go build works end-to-end (exercises GOCACHE/GOMODCACHE). The single quotes
+# are deliberate: $d must expand inside the nonroot subshell, not out here.
+# shellcheck disable=SC2016
+if su -s /bin/sh -c '
+    d=$(mktemp -d) && cd "$d" && go mod init smoke &&
+    printf "package main\nfunc main() {}\n" > main.go &&
+    go build .
+' nonroot; then
+    ok "go build works end-to-end"
+else
+    bad "go build works end-to-end"
+fi
+
+# The install can succeed while the binary stays invisible because /bun/bin is
+# not on PATH — assert both halves.
+if su -s /bin/sh -c 'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1' nonroot; then
+    ok "bun add -g installs a binary that resolves on PATH"
+else
+    bad "bun add -g installs a binary that resolves on PATH"
+fi
+
+if su -s /bin/sh -c 'python -c "print(1)"' nonroot; then
+    ok "python runs"
+else
+    bad "python runs"
+fi
 
 exit $((fails > 0))

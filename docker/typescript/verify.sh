@@ -5,33 +5,78 @@
 #     -v $PWD/docker/typescript/verify.sh:/verify.sh:ro --entrypoint /bin/sh <ref> /verify.sh
 
 fails=0
-ck() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi; }
+ok()  { echo "ok   $*"; }
+bad() { echo "FAIL $*"; fails=$((fails + 1)); }
 
-writable_bun() {
-    su -s /bin/sh -c '
-        for d in /bun /bun/bin /bun/install/global; do
-            mkdir -p "$d" && touch "$d/.wprobe" && rm -f "$d/.wprobe" || exit 1
-        done
-    ' nonroot
+check_user() {
+    if [ "$(id -u)" = "$1" ]; then ok "runs as uid $1"; else bad "runs as uid $(id -u), want $1"; fi
 }
+
+check_workdir() {
+    if [ "$(pwd)" = "$1" ]; then ok "workdir is $1"; else bad "workdir is $(pwd), want $1"; fi
+}
+
+check_env() {
+    if [ "$(printenv "$1")" = "$2" ]; then ok "$1=$2"; else bad "$1=$(printenv "$1"), want $2"; fi
+}
+
+check_cmd() {
+    missing=
+    for c in "$@"; do
+        command -v "$c" >/dev/null 2>&1 || missing="$missing $c"
+    done
+    if [ -z "$missing" ]; then ok "on PATH: $*"; else bad "not on PATH:$missing"; fi
+}
+
+# Runs a command and looks for a substring, so a version bump in buildargs.conf
+# fails the check instead of silently passing.
+check_version() {
+    out=$(sh -c "$1" 2>&1)
+    case "$out" in
+        *"$2"*) ok "$1 reports $2" ;;
+        *)      bad "$1 does not report $2: $out" ;;
+    esac
+}
+
+check_writable_as() {
+    u=$1
+    shift
+    missing=
+    for d in "$@"; do
+        su "$u" -s /bin/sh -c "mkdir -p '$d/.verify' && rmdir '$d/.verify'" 2>/dev/null || missing="$missing $d"
+    done
+    if [ -z "$missing" ]; then ok "writable by $u: $*"; else bad "not writable by $u:$missing"; fi
+}
+
+check_user 0
+check_workdir /app
+check_env BUN_INSTALL /bun
+
+if case "$PATH" in *"/bun/bin"*) true ;; *) false ;; esac; then
+    ok "PATH contains /bun/bin"
+else
+    bad "PATH contains /bun/bin"
+fi
+
+check_cmd bun
+check_version "bun --version" "$BUN_VERSION"
+
+check_writable_as nonroot /bun /bun/bin /bun/install/global
 
 # The install can succeed while the binary stays invisible because /bun/bin is
 # not on PATH — assert both halves.
-bun_cowsay() {
-    su -s /bin/sh -c 'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1' nonroot
-}
-
-ck "runs as root (uid 0)" '[ "$(id -u)" = 0 ]'
-ck "WORKDIR is /app" '[ "$(pwd)" = /app ]'
-ck "BUN_INSTALL=/bun" '[ "$BUN_INSTALL" = /bun ]'
-ck "PATH contains /bun/bin" 'case "$PATH" in *"/bun/bin"*) true ;; *) false ;; esac'
-ck "on PATH: bun" 'command -v bun >/dev/null 2>&1'
-ck "bun --version reports $BUN_VERSION" 'bun --version 2>&1 | grep -qF "$BUN_VERSION"'
-ck "writable by uid 1001: /bun /bun/bin /bun/install/global" writable_bun
-ck "bun add -g installs a binary that resolves on PATH" bun_cowsay
+if su -s /bin/sh -c 'bun add -g --ignore-scripts cowsay && command -v cowsay >/dev/null 2>&1' nonroot; then
+    ok "bun add -g installs a binary that resolves on PATH"
+else
+    bad "bun add -g installs a binary that resolves on PATH"
+fi
 
 # This image deliberately does not provide a node symlink (agent/all-in-one
 # do); assert its absence so the distinction does not silently erode.
-ck "node is absent" '! command -v node >/dev/null 2>&1'
+if ! command -v node >/dev/null 2>&1; then
+    ok "node is absent"
+else
+    bad "node is absent"
+fi
 
 exit $((fails > 0))
