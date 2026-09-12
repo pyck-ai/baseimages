@@ -36,6 +36,10 @@ on:
       baseline:
         description: 'Trailing baseline for the volume alarm (leave blank to disable it for this run)'
         type: number
+      delete-broken-roots:
+        description: 'Remediate a keep-root whose subtree has a PROVEN not-found descendant (confirmed registry 404), so it can be planned instead of skipped. Not a routine setting: only enable it against a package known to have this corruption. Forced off on schedule by the shared workflow; workflow_dispatch only.'
+        type: boolean
+        default: false
 
 # Never cancel a running tidy job — partial cleanup is worse than no
 # cleanup. The shared workflow deliberately declares no concurrency of its
@@ -69,13 +73,21 @@ jobs:
   # mutually exclusive on whether `inputs.baseline` was supplied at all:
   # the first omits `baseline` (dispatch left it blank, matching the
   # description above), the second includes it as a real number.
+  #
+  # `delete-broken-roots` is passed unwrapped in both jobs: it is declared
+  # `type: boolean` on both sides (dispatch input and callee's
+  # `workflow_call` input), and only `number`/`string`-typed
+  # `workflow_dispatch` inputs arrive as strings at runtime — a boolean
+  # input survives as a real boolean. Wrapping it in `fromJSON(...)` like
+  # `budget` would be copying that fix to a case that doesn't need it.
   tidy:
     if: inputs.baseline == ''
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@aa1b5371195003963a01167243a3d14232ce2150
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@5b2535f19dcf9153cfc27318d11077688792b2d7
     with:
       apply: ${{ inputs.apply }}
       budget: ${{ fromJSON(inputs.budget) }}
       package: ${{ inputs.package }}
+      delete-broken-roots: ${{ inputs.delete-broken-roots }}
     permissions:
       contents: read
       packages: read
@@ -84,12 +96,13 @@ jobs:
 
   tidy-with-baseline:
     if: inputs.baseline != ''
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@aa1b5371195003963a01167243a3d14232ce2150
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@5b2535f19dcf9153cfc27318d11077688792b2d7
     with:
       apply: ${{ inputs.apply }}
       budget: ${{ fromJSON(inputs.budget) }}
       package: ${{ inputs.package }}
       baseline: ${{ fromJSON(inputs.baseline) }}
+      delete-broken-roots: ${{ inputs.delete-broken-roots }}
     permissions:
       contents: read
       packages: read
