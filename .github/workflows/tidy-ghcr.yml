@@ -82,7 +82,7 @@ jobs:
   # `budget` would be copying that fix to a case that doesn't need it.
   tidy:
     if: inputs.baseline == ''
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@a388b6bbfa1c6f94550ee2ca4f62cc172a878089
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@2102effe25c3ddd7c31baf3226b4f1d46db45aff
     with:
       apply: ${{ inputs.apply }}
       budget: ${{ fromJSON(inputs.budget) }}
@@ -96,7 +96,7 @@ jobs:
 
   tidy-with-baseline:
     if: inputs.baseline != ''
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@a388b6bbfa1c6f94550ee2ca4f62cc172a878089
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@2102effe25c3ddd7c31baf3226b4f1d46db45aff
     with:
       apply: ${{ inputs.apply }}
       budget: ${{ fromJSON(inputs.budget) }}
