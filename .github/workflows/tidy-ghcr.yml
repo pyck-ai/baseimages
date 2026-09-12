@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   tidy:
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@a959fe759cc5dc961df2d9cfaca93aa6d663da80
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@aa1b5371195003963a01167243a3d14232ce2150
     with:
       apply: ${{ inputs.apply }}
       budget: ${{ inputs.budget }}
