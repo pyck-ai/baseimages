@@ -30,21 +30,19 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Delegates discover -> build (push-by-digest) -> verify (imgverify against
-  # .imgverify.yaml) -> publish (apply tags) -> gate to the shared workflow.
-  # See pyck-ai/github-actions/.github/workflows/build-image.yml for the job
+  # Delegates discover -> build (push-by-digest) -> verify (docker/*/verify.sh
+  # run inside each freshly pushed image) -> publish (apply tags) -> gate to
+  # the shared workflow. See
+  # pyck-ai/github-actions/.github/workflows/build-image.yml for the job
   # shape; this repo no longer carries its own copy.
   build:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@36fe92de27e184692ef6273b0f5ddb7081db34d6
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@828dceea191b7bf46411368edc65037adda9fad7
     with:
-      # Must match .imgverify.yaml's expected registry: the shared verify step
-      # exports REGISTRY into imgverify's environment, and imgverify resolves
-      # process.env.REGISTRY with higher precedence than the `registry:` field
-      # inside .imgverify.yaml. Omitting this lets the shared workflow's
-      # default (ghcr.io/pyck-ai) silently override the correct value.
+      # Registry + namespace the bake file resolves build args against and
+      # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
       registry: ghcr.io/pyck-ai/baseimages
       # Distinct per-repo builder name so concurrent builds on the same
       # self-hosted runner don't collide on a shared default builder.

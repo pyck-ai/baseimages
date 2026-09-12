@@ -100,18 +100,18 @@ task build ARCH=amd64 -- base-alpine
 
 ## Verifying
 
-Verification is defined in [`.imgverify.yaml`](.imgverify.yaml) and runs in CI, not
-locally. It checks the *assembled* image rather than a build stage — default user,
-`WORKDIR`, `ENV`, tool versions against [`buildargs.conf`](buildargs.conf), directory
-writability, and a smoke test per image (`go build`, `bun add -g`, an HTTP request to
-nginx). It is distinct from `download.sh --verify`, which checks a tool inside the stage
-that installed it; bugs that only appear once all the `COPY`s are stitched together are
-invisible to the build and are what this catches.
+Each image directory ships a `verify.sh` (e.g. `docker/base/verify.sh`), run in CI, not
+locally, *inside* the assembled image — default user, `WORKDIR`, `ENV`, tool versions
+against [`buildargs.conf`](buildargs.conf), directory writability, and a smoke test per
+image (`go build`, `bun add -g`, an HTTP request to nginx). It is distinct from
+`download.sh --verify`, which checks a tool inside the stage that installed it; bugs
+that only appear once all the `COPY`s are stitched together are invisible to the build
+and are what this catches. A target with no `verify.sh` is a hard build failure.
 
 The build job pushes every target **by digest with no tags**; the verify job resolves
-each target to `<repo>@<digest>`, pulls it, and runs the checks from `.imgverify.yaml`
-against it. Tags are applied afterwards by a separate `publish` job, so verification is a
-real gate: if a check fails, the floating and version tags never move.
+each target to `<repo>@<digest>`, pulls it, and runs that image's `verify.sh` against
+it. Tags are applied afterwards by a separate `publish` job, so verification is a real
+gate: if a check fails, the floating and version tags never move.
 
 The build job is matrixed over the connected components of the bakefile's dependency
 graph, which CI derives from the `contexts` edges rather than from any hard-coded list.

@@ -31,34 +31,53 @@ README files in this repository document what each Docker image contains. Keep t
 - New environment variable added or an existing one changed: update the ENV table.
 - Default user or WORKDIR changed: update the "Default user" section.
 
-**When an image is added**, create a README in the new image's directory following the style of the existing ones, add its checks to [`.imgverify.yaml`](.imgverify.yaml), then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is added**, create a README in the new image's directory following the style of the existing ones, add a `verify.sh` for its bake target(s), then add a row to the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
-**When an image is removed**, delete its README and its target from [`.imgverify.yaml`](.imgverify.yaml), and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
+**When an image is removed**, delete its README and its `verify.sh`, and remove its row from the matching image-kind table and the dependency graph in the root [`README.md`](README.md).
 
 **When an image is renamed** (tag or directory), update all references in the root [`README.md`](README.md) and any cross-links between image READMEs.
 
 ## Image verification
 
-Verification lives in [`.imgverify.yaml`](.imgverify.yaml) at the repo root: a per-target
-list of checks against the **assembled** image — default user, `WORKDIR`, `ENV`, tool
-versions against `buildargs.conf`, directory writability, and a smoke test of what the
-image is for.
+Each image directory ships a `verify.sh` (e.g. `docker/base/verify.sh`). CI runs it
+**inside** the image it just built:
 
-CI runs it against the exact digest the build pushed, before any tag moves: the build
-stage pushes every target **by digest with no tags**, the verify step resolves each
-target to `<repo>@<digest>` and pulls it, and a separate publish step applies the tags
-only after that passes. A failed check means the tags never move.
+```
+docker run --rm --env-file buildargs.conf -e TARGET=<bake target> \
+  -v <dir>/verify.sh:/verify.sh:ro --entrypoint /bin/sh <image@digest> /verify.sh
+```
+
+Every `KEY=VALUE` in `buildargs.conf` arrives as an env var, so a version check is
+literally `task --version | grep -qF "$TASKFILE_VERSION"` — no templating layer.
+`TARGET` holds the bake target name, so a directory serving two variants (e.g.
+`base-alpine`/`base-debian`) uses one script that branches on `$TARGET`. Because the
+script runs inside the container, `id -u`, `pwd`, `printenv` observe the image's real
+effective user, workdir and environment rather than asserted metadata. Scripts use a
+4-line `ck "description" 'expression'` helper so all failures are reported in one run,
+and are runnable by hand: `docker run --rm -it <image> sh` then paste a line.
+
+CI runs `verify.sh` against the exact digest the build pushed, before any tag moves:
+the build stage pushes every target **by digest with no tags**, the verify step
+resolves each target to `<repo>@<digest>` and pulls it, and a separate publish step
+applies the tags only after that passes. A failed check means the tags never move.
+**A target with no `verify.sh` is a hard failure, not a skip** — this is what
+guarantees a new image cannot ship unverified.
+
+`static` is `FROM scratch` and has no shell, so CI derives a throwaway image
+(`FROM <digest>` + `COPY --from=busybox:musl /bin /bin`) to run the same script
+against; that is the one exception. `nginx`'s script starts the server itself and
+curls `http://127.0.0.1:8080/` to prove it serves.
 
 This is not the same as `download.sh --verify`, which checks a tool inside the stage
 that installed it. A missing binary, a root-owned cache directory, or a typo'd `USER`
 all build green and only surface once the image is run — that class of bug is what
-`.imgverify.yaml` exists to catch.
+`verify.sh` exists to catch.
 
-**When a Dockerfile changes**, update `.imgverify.yaml` — not a per-image script:
+**When a Dockerfile changes**, update that image's `verify.sh`:
 
-- Tool added, removed, or renamed: update the version/command checks for that target.
-- New environment variable, or a changed value: update the `ENV` checks.
-- Default user or WORKDIR changed: update the user/workdir checks.
+- Tool added, removed, or renamed: update the version/command checks.
+- New environment variable, or a changed value: update the env checks.
+- Default user or WORKDIR changed: update the `id -u`/`pwd` checks.
 - A new directory the image must write to at runtime: add a writability check for it.
 
 Ground every check in the Dockerfile. Do not assert something the image does not
