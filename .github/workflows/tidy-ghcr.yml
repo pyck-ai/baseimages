@@ -7,11 +7,32 @@ run-name: Tidy GHCR
 # alarm, canary and post-apply verification). This repo no longer carries
 # its own prune script.
 #
-# THE `schedule:` TRIGGER IS DELIBERATELY ABSENT. ghcr-tidy has never
-# applied a deletion anywhere yet; the agreed rollout is a manual budget
-# ladder (dispatch with budget 1, then 10, then unlimited, watching each
-# run) before the cron is restored in a separate follow-up change. Do NOT
-# "helpfully" add a `schedule:` block back until that ladder is clean.
+# THE CRON IS NOW ARMED. The manual budget ladder (dispatch with budget 1,
+# then 10, then unlimited, watching each run) is complete and clean:
+# 11,688 versions deleted across all 11 packages, zero deletion failures,
+# zero damage, every published image verified pulling afterwards.
+# Steady-state nightly volume from here on should be small
+# (see the `tidy-with-baseline` job below).
+#
+# SCHEDULE-VS-DISPATCH TYPING HAZARD: on a `schedule` event the top-level
+# `inputs` context is EMPTY, not defaulted — `workflow_dispatch` input
+# defaults are never applied to a scheduled run of the CALLER (this file).
+# So `inputs.apply`/`inputs.budget`/etc. all read as null/empty here,
+# and the callee declares `apply`/`delete-broken-roots` as `type: boolean`
+# and `budget`/`baseline` as `type: number`. Forwarding an empty value
+# into a `with:` key typed boolean/number fails `workflow_call` input
+# validation before a single job is created — the whole run shows "0
+# jobs" with no other diagnostic (this bit a previous change; see git
+# history). Every expression below is therefore written to produce a
+# real, correctly-typed value on BOTH events — `github.event_name ==
+# 'schedule'` is tested directly rather than ever using `inputs.x ||
+# 'default'`-style fallback, because `false` is falsy in Actions
+# expressions and such a fallback would silently coerce an explicit
+# `apply: false` dispatch into the schedule default. `package` is the one
+# exception: it's declared `type: string` on both sides, and an empty
+# string is a valid string, so `inputs.package` can be forwarded
+# unconditionally — see the "tidy" job's own comment for why the other
+# four inputs need the event-aware treatment.
 #
 # CREDENTIAL: the shared workflow reads `secrets.GHCR_ADMIN_TOKEN` (a
 # classic PAT with read:packages, delete:packages, read:org) directly from
@@ -19,6 +40,16 @@ run-name: Tidy GHCR
 # so `secrets: inherit` below is required for `apply` to find it — an
 # explicit `secrets:` block cannot pass a secret the callee didn't declare.
 on:
+  schedule:
+    # Same off-peak hour the old bash-based prune used. CI on this repo
+    # publishes continuously, but self-hosted runner load and image churn
+    # are both lowest overnight, and a run that misbehaves has the whole
+    # night to be caught (breaker trips open an issue) before anyone is
+    # relying on a fresh image during business hours. A tidy run can take
+    # a while (~2min/large package per known planner performance, more
+    # once `apply` walks the delete list), which is exactly why it should
+    # not compete with active build/publish traffic.
+    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       apply:
@@ -34,7 +65,7 @@ on:
         type: string
         default: ''
       baseline:
-        description: 'Trailing baseline for the volume alarm (leave blank to disable it for this run)'
+        description: 'Trailing baseline for the volume alarm (leave blank to disable it for this run; scheduled runs always get one — see the jobs below)'
         type: number
       delete-broken-roots:
         description: 'Remediate a keep-root whose subtree has a PROVEN not-found descendant (confirmed registry 404), so it can be planned instead of skipped. Not a routine setting: only enable it against a package known to have this corruption. Forced off on schedule by the shared workflow; workflow_dispatch only.'
@@ -50,44 +81,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A `workflow_dispatch` input declared `type: number` is only a number in
-  # the UI; at runtime `inputs.budget`/`inputs.baseline` are STRINGS (only
-  # `type: boolean` survives as a real boolean — see GitHub's docs). The
-  # callee's `workflow_call` inputs of the same names are declared
-  # `type: number`, and a `with:` value's runtime type must match the
-  # callee's declared type, so passing the bare string fails validation
-  # before a single job is created (the whole run shows "0 jobs" with no
-  # other diagnostic). `fromJSON(...)` parses the string back into a real
-  # JSON number, which is what the callee actually requires.
-  #
-  # `baseline` cannot be fixed the same way `budget` was, and needs its own
-  # job. The callee treats an *omitted* `baseline` as "disable the volume
-  # alarm" (see its own input description and `checkVolumeAlarm` in
-  # ghcr-tidy: `baseline: undefined` short-circuits to `allowed: true`
-  # before ever computing a threshold). But `baseline * multiple` for
-  # `baseline: 0` is `0`, and `checkVolumeAlarm` then refuses ANY plan that
-  # deletes more than zero versions — the exact opposite of "disabled". So
-  # there is no numeric sentinel that means "disabled": the key must be
-  # left out of `with:` entirely, and a `with:` block can't conditionally
-  # drop one of its own keys based on a runtime value. Hence two jobs,
-  # mutually exclusive on whether `inputs.baseline` was supplied at all:
-  # the first omits `baseline` (dispatch left it blank, matching the
-  # description above), the second includes it as a real number.
-  #
-  # `delete-broken-roots` is passed unwrapped in both jobs: it is declared
-  # `type: boolean` on both sides (dispatch input and callee's
-  # `workflow_call` input), and only `number`/`string`-typed
-  # `workflow_dispatch` inputs arrive as strings at runtime — a boolean
-  # input survives as a real boolean. Wrapping it in `fromJSON(...)` like
-  # `budget` would be copying that fix to a case that doesn't need it.
+  # Routing: mutually exclusive on "does this run get a volume-alarm
+  # baseline", per the module header comment above. A `schedule` run
+  # ALWAYS gets one now (see `tidy-with-baseline`'s comment for the
+  # number and why) — the backlog drain that justified running the alarm
+  # blind is done. A `workflow_dispatch` run gets one only if the caller
+  # explicitly set `baseline`; on schedule the top-level `inputs.baseline`
+  # is empty so that half of the OR is checked via `github.event_name`
+  # directly, never via `inputs.baseline` itself (which reads as empty on
+  # schedule regardless of what we want the effective value to be).
   tidy:
-    if: inputs.baseline == ''
+    if: github.event_name != 'schedule' && inputs.baseline == ''
     uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@2102effe25c3ddd7c31baf3226b4f1d46db45aff
     with:
-      apply: ${{ inputs.apply }}
-      budget: ${{ fromJSON(inputs.budget) }}
+      # Plain OR of two real booleans (never a `||` fallback on
+      # `inputs.apply` itself) — see the module header's typing-hazard
+      # comment. Mirrors the callee's own `steps.effective` idiom for
+      # the same input.
+      apply: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+      # `inputs.budget` is a STRING at runtime on `workflow_dispatch`
+      # (only `type: boolean` inputs survive as real booleans) and is
+      # flat-out MISSING on `schedule`. Build the right STRING first —
+      # `'200'` and `inputs.budget` are both non-empty/truthy so the
+      # `&&`/`||` short-circuit here is safe, unlike a boolean fallback —
+      # then `fromJSON` it into the real number the callee's `type:
+      # number` input requires.
+      budget: ${{ fromJSON(github.event_name == 'schedule' && '200' || inputs.budget) }}
+      # `type: string` on both sides; empty string is a valid string
+      # regardless of event, so no event-aware handling is needed here.
       package: ${{ inputs.package }}
-      delete-broken-roots: ${{ inputs.delete-broken-roots }}
+      # AND of two real booleans (never `inputs.delete-broken-roots ||
+      # ...`) — forced to `false` outright on `schedule`, matching the
+      # callee's own unconditional schedule override for this input (see
+      # its `steps.effective` step) and this repo's decision to never
+      # let an unattended run remediate broken roots.
+      delete-broken-roots: ${{ github.event_name != 'schedule' && inputs.delete-broken-roots == true }}
     permissions:
       contents: read
       packages: read
@@ -95,14 +123,28 @@ jobs:
     secrets: inherit
 
   tidy-with-baseline:
-    if: inputs.baseline != ''
+    if: github.event_name == 'schedule' || inputs.baseline != ''
     uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@2102effe25c3ddd7c31baf3226b4f1d46db45aff
     with:
-      apply: ${{ inputs.apply }}
-      budget: ${{ fromJSON(inputs.budget) }}
+      apply: ${{ github.event_name == 'schedule' || inputs.apply == true }}
+      budget: ${{ fromJSON(github.event_name == 'schedule' && '200' || inputs.budget) }}
       package: ${{ inputs.package }}
-      baseline: ${{ fromJSON(inputs.baseline) }}
-      delete-broken-roots: ${{ inputs.delete-broken-roots }}
+      # 510 is the planned/attempted count of the LAST budget-ladder run
+      # (the tail of the drain, already elevated from clearing backlog),
+      # the only concrete number this repo has measured so far — see the
+      # module header comment. `checkVolumeAlarm`'s default multiple is
+      # 3x (ghcr-tidy's own doc: "a starting point to be tightened once
+      # real run history exists"), so this blocks a plan only above 1530
+      # total deletions in one run — comfortably above the "tens to low
+      # hundreds per night" steady state expected now that the backlog is
+      # drained, while still catching a repeat of the exact failure mode
+      # this alarm exists for (a reachability bug suddenly marking most
+      # of a package unreachable). Same `fromJSON` string-ternary
+      # construction as `budget` above, for the same reason (`baseline`
+      # is `type: number` on the callee and unset — not even an empty
+      # string — on `schedule`).
+      baseline: ${{ fromJSON(github.event_name == 'schedule' && '510' || inputs.baseline) }}
+      delete-broken-roots: ${{ github.event_name != 'schedule' && inputs.delete-broken-roots == true }}
     permissions:
       contents: read
       packages: read
