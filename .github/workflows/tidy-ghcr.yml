@@ -1,238 +1,60 @@
 name: tidy-ghcr
 run-name: Tidy GHCR
 
-# One job (`tidy`), running `.github/scripts/tidy-ghcr/tidy.sh`, which prunes
-# GHCR package versions in this repo's `pyck-ai/baseimages` packages using
-# reachability from kept tagged roots (index -> child manifest, attestation
-# manifests owned by their subject) rather than a flat "untagged == garbage"
-# rule. It enumerates every REAL package from the GitHub Packages API and
-# classifies each one against `docker-bake.hcl`, rather than only ever
-# seeing packages still named there.
+# Thin caller of the shared ghcr-tidy pipeline (see
+# pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml for the retention
+# model: reachability-based delete set, grace window, breaker, volume
+# alarm, canary and post-apply verification). This repo no longer carries
+# its own prune script.
 #
-# RETENTION: for a package whose image target is still in the bakefile
-# (live), or the `buildcache` infra package: keep the newest 10
-# unique-digest tagged roots OR any root younger than 30 days, whichever
-# keeps more. For a package whose target was removed from the bakefile
-# (orphan): keep ONLY roots younger than 30 days — no keep-10 floor, no
-# protected-tag floor — so an orphan's tags decay one by one instead of
-# being pinned forever. Once a genuinely stale orphan (no version younger
-# than 30 days) has nothing left worth keeping and its last version is
-# actually gone, the empty-package sweep deletes the package itself (see
-# tidy.sh's header for both). Reachability from every kept root then
-# protects that root's multi-arch children (platform manifests,
-# attestations) regardless of their own age.
+# THE `schedule:` TRIGGER IS DELIBERATELY ABSENT. ghcr-tidy has never
+# applied a deletion anywhere yet; the agreed rollout is a manual budget
+# ladder (dispatch with budget 1, then 10, then unlimited, watching each
+# run) before the cron is restored in a separate follow-up change. Do NOT
+# "helpfully" add a `schedule:` block back until that ladder is clean.
 #
-# WHY THE OLD APPROACH IS GONE: this workflow used to run
-# vlaurin/action-ghcr-prune with `prune-untagged: true`. GHCR lists the
-# child platform manifests AND buildx provenance attestation manifests of a
-# live multi-arch index as separate UNTAGGED package versions, so that
-# action deleted pieces of currently tagged images. This already broke 168
-# published tags across the golang, rover, all-in-one, and nginx packages
-# (see audit.sh). tidy.sh replaces that action entirely, including its own
-# package discovery: it enumerates packages from the GitHub Packages API
-# and classifies them against the bakefile, instead of deriving the image
-# list from `docker buildx bake --print` the way the old `discover` job
-# did — that derivation is exactly why 9 packages (40% of the registry:
-# buildcache, flutter, slim, agents, alpine, debian, claude, aws, renovate)
-# were permanently invisible to cleanup the moment they were renamed or
-# removed from the bakefile. There is no `discover` job here anymore; the
-# script does that itself, and independently cross-checks its own bakefile
-# discovery against the `docker/*/` image directories, aborting the whole
-# run if they disagree (see tidy.sh).
-#
-# `nginx` and `rover` CANNOT be pruned by a plain run: they already have
-# broken tags from the incident above (missing child manifests under a
-# currently-tagged root), and tidy.sh correctly refuses to compute a plan
-# for a package when a kept root's manifest tree doesn't fully resolve
-# (safety rail #3, fail-closed). That is expected, not a bug in this
-# workflow — and it's what the `delete_broken_roots` dispatch input below
-# is for: it clears that corruption by removing the dead index roots
-# themselves (every direct child of the root independently confirmed 404),
-# after which the packages prune normally. It still requires `apply: true`
-# to actually delete anything; without `apply` it only reports which roots
-# it would remove.
-#
-# CREDENTIAL: this job requires the `GHCR_ADMIN_TOKEN` repository secret (a
-# classic PAT with read:packages, delete:packages and read:org). tidy.sh
-# enumerates packages via `GET /orgs/{org}/packages?package_type=
-# container`, and the default `GITHUB_TOKEN` — a GitHub App installation
-# token scoped to this single repository — gets HTTP 400 from that endpoint
-# (it only works for App tokens installed at the org level). There is no
-# repo-scoped REST alternative, and the GraphQL PackageType enum doesn't
-# expose CONTAINER either, so a classic PAT is the only way to list them.
-# `GITHUB_TOKEN` is kept as a fallback purely so the workflow still runs
-# (and fails with the clear diagnostic below) when the secret is absent,
-# rather than erroring at expression evaluation.
-#
-# THE `schedule:` TRIGGER BELOW IS DELIBERATELY ARMED. The `inputs` context
-# is only populated for `workflow_dispatch` (and `workflow_call`) — on a
-# `schedule` event every `${{ inputs.* }}` dereference evaluates to the
-# empty string, `workflow_dispatch` input `default:` values are NEVER
-# applied to a schedule run, and the script arms only on the exact string
-# "true". So a naive `${{ inputs.apply }}` on the schedule trigger renders
-# "" (falsy to the script) regardless of what `default:` says on the
-# `apply` input — the nightly cron would silently do nothing at all. Every
-# step `env:` below therefore branches explicitly on
-# `github.event_name == 'schedule'` to arm the run, instead of relying on
-# input defaults.
-#
-# DO NOT "simplify" this to `${{ inputs.apply || 'true' }}`. In Actions
-# expression syntax `false` (the boolean, not just falsy-string) is itself
-# falsy, so `inputs.apply || 'true'` evaluates a manual dispatch with the
-# explicit choice `apply: false` (a deliberate dry run) as `'true'` and
-# deletes anyway — silently turning "let me just look" into "delete
-# everything". The `github.event_name == 'schedule' || inputs.apply ==
-# true` form used below does not have this trap: `inputs.apply == true`
-# is only true when the dispatch input is the literal boolean true.
-#
-# Net behaviour:
-#   - schedule            -> ARMED: apply on, delete_broken_roots on,
-#                             budget from the workflow-level env below.
-#   - manual dispatch      -> DRY BY DEFAULT: `apply` input defaults to
-#                             false, so a human dispatching to look doesn't
-#                             delete unless they explicitly set apply=true.
-#   - dispatch apply=true  -> ARMED, exactly as requested.
-#   - dispatch apply=false -> stays DRY, exactly as requested (never
-#                             coerced to true by the schedule branch or by
-#                             a falsy-OR fallback).
-env:
-  # Single source for the scheduled run's deletion budget, so the number
-  # isn't duplicated between here and the `budget` input's dispatch
-  # default (which stays independent — see the input's own comment).
-  SCHEDULED_BUDGET: '500'
-
+# CREDENTIAL: the shared workflow reads `secrets.GHCR_ADMIN_TOKEN` (a
+# classic PAT with read:packages, delete:packages, read:org) directly from
+# the `secrets` context rather than as a declared `workflow_call` secret,
+# so `secrets: inherit` below is required for `apply` to find it — an
+# explicit `secrets:` block cannot pass a secret the callee didn't declare.
 on:
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       apply:
         description: 'Actually delete (omit for a dry run / plan only)'
         type: boolean
         default: false
-      packages:
-        description: 'Space-separated package names to restrict to (empty = all)'
-        type: string
-        default: ''
       budget:
-        # 500 is sized against the inflow, not picked for comfort. A build adds
-        # roughly 70 versions a day across the images, so a budget much below
-        # that barely outpaces what arrives and the backlog never clears: at 100
-        # the net drain is ~30/day, which is over a year for the current 15,640.
-        # At 500 it drains in about six weeks while keeping any single run small
-        # enough to read.
-        description: 'Stop after this many deletions in this run'
-        type: string
-        default: '500'
-      keep_all_tagged:
-        description: >-
-          Keep every tagged root regardless of age or count. Correct mode for
-          cache-like packages such as buildcache, whose tags are live entries
-          for currently-building targets rather than retention candidates.
-        type: boolean
-        default: false
-      delete_broken_roots:
-        description: >-
-          Remediation mode for pre-existing corruption. Removes index
-          versions whose child manifests are confirmed missing (every
-          direct child independently verified 404, never merely
-          unresolved) instead of leaving the whole package fail-closed.
-          Reported in its own section either way; requires apply=true to
-          actually delete anything.
-        type: boolean
-        default: true
-      delete_package:
-        description: >-
-          Operator escape hatch (empty = not requested): DELETE the named
-          container package itself (relative to the repo prefix, e.g.
-          "claude" for baseimages/claude), bypassing classification, every
-          safety rail, the budget, and the planning pass entirely. Refuses
-          unless the package is linked to this repo and is NOT a live
-          bakefile target. Still requires apply=true to actually call
-          DELETE. NOT part of automatic/nightly policy — never set on the
-          schedule trigger.
+        description: 'Maximum number of version-deletion attempts this run may make'
+        type: number
+        default: 200
+      package:
+        description: 'Restrict to one configured package (matches a packages[].match entry in .ghcr-tidy.yaml); empty = all'
         type: string
         default: ''
+      baseline:
+        description: 'Trailing baseline for the volume alarm (empty disables it for this run)'
+        type: number
 
-# Never cancel a running tidy job — partial cleanup is worse than no cleanup.
-# Do NOT "fix" a stuck run by flipping this to true: cancelling mid-deletion
-# can abort a DELETE call after GHCR has removed a version but before the
-# script records it, or leave a package half-pruned. `timeout-minutes` below
-# is the correct backstop for a wedged run (it frees the concurrency group
-# without cancelling work in flight); this flag is not.
+# Never cancel a running tidy job — partial cleanup is worse than no
+# cleanup. The shared workflow deliberately declares no concurrency of its
+# own (a duplicate group between caller and callee would deadlock the run
+# — see the shared workflow's header), so this caller owns it.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   tidy:
-    name: Tidy GHCR packages
-    runs-on: self-hosted
-    # Backstop against a wedged run (network stall in request_with_retry, a
-    # stuck/offline self-hosted runner) holding the `${{ github.workflow }}`
-    # concurrency group forever: with cancel-in-progress: false above, GitHub
-    # keeps at most one pending run per group and cancels every other queued
-    # run behind a stuck one, so a single hang silently disarms every
-    # subsequent nightly run with no failure signal. 60 minutes is a rough
-    # estimate, NOT measured: the planning pass does ~156 package-list calls
-    # plus ~850 sequential manifest resolutions and two tag walks per applied
-    # package, and the apply loop (up to 500 deletions, ~1s sleep each plus
-    # API latency) alone is roughly 9-11 minutes; a local dry run was still
-    # planning after ~5 minutes. Retune this once a full scheduled run has
-    # actually been timed end-to-end.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
-
-      - name: Tidy GHCR packages
-        id: tidy
-        env:
-          # See the workflow header comment: GHCR_ADMIN_TOKEN (classic PAT
-          # with read:packages, delete:packages, read:org) is required to
-          # list org packages; GITHUB_TOKEN is only a fallback so the run
-          # still happens and fails with a clear diagnostic when the
-          # secret is unset.
-          GITHUB_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
-          # See the workflow header comment on `env:`/`on:` for why this
-          # branches on event_name instead of trusting `inputs.apply`
-          # directly: `inputs` is empty on a schedule run.
-          APPLY: ${{ github.event_name == 'schedule' || inputs.apply == true }}
-          # Empty on a schedule run is CORRECT here, not a bug: tidy.sh
-          # treats an empty PACKAGES as "every eligible package", which is
-          # exactly the right scope for the nightly job.
-          PACKAGES: ${{ inputs.packages }}
-          # Scheduled runs use the workflow-level SCHEDULED_BUDGET so the
-          # number lives in one place instead of being duplicated between
-          # here and the `budget` input's dispatch default.
-          BUDGET: ${{ github.event_name == 'schedule' && env.SCHEDULED_BUDGET || inputs.budget }}
-          # Empty on a schedule run is CORRECT here, not a bug: tidy.sh
-          # only enables keep-all-tagged on the exact string "true", so an
-          # empty inputs.keep_all_tagged already yields the correct default
-          # (off) on schedule, matching the dispatch input's own default.
-          KEEP_ALL_TAGGED: ${{ inputs.keep_all_tagged }}
-          # Scheduled runs arm remediation of pre-existing corruption
-          # (nginx/rover — see the workflow header comment) the same way
-          # APPLY is armed above; it is inert without APPLY=true.
-          DELETE_BROKEN_ROOTS: ${{ github.event_name == 'schedule' || inputs.delete_broken_roots == true }}
-          # Operator escape hatch, NOT part of automatic policy — see
-          # tidy.sh's own header comment on --delete-package. Empty on a
-          # schedule run is CORRECT and REQUIRED here (the opposite of
-          # PACKAGES above): this must never be armed by the nightly cron,
-          # only by an explicit manual dispatch, so it stays a bare
-          # `inputs.delete_package` with no event_name branching.
-          DELETE_PACKAGE: ${{ inputs.delete_package }}
-        run: .github/scripts/tidy-ghcr/tidy.sh --json tidy-plan.json
-
-      - name: Upload tidy plan
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tidy-plan
-          path: tidy-plan.json
-          retention-days: 7
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@a959fe759cc5dc961df2d9cfaca93aa6d663da80
+    with:
+      apply: ${{ inputs.apply }}
+      budget: ${{ inputs.budget }}
+      package: ${{ inputs.package }}
+      baseline: ${{ inputs.baseline }}
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    secrets: inherit

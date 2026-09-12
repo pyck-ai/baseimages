@@ -1,0 +1,42 @@
+# GHCR retention for pyck-ai/baseimages.
+#
+# Package names are FULL names. This repo nests its images under a
+# `baseimages/` prefix, unlike github-runner and flutter-rfw which are top
+# level. That difference is exactly why there is no prefix-joining helper
+# anywhere in ghcr-tidy: the two bash implementations being replaced
+# concatenate prefixes in mutually incompatible ways.
+version: 1
+owner: pyck-ai
+
+# Pre-flight proof, taken before any deletion, that the registry is
+# readable and a known-good tag resolves — see ghcr-tidy's
+# `ManifestCanary` doc for why this must live here rather than as a
+# workflow input (the `tidy-ghcr.yml` caller's `inputs` are empty on a
+# `schedule` trigger). `baseimages/base:alpine` is chosen deliberately:
+# `alpine` matches ghcr-tidy's own DEFAULT_PROTECTED_TAGS (`^alpine$`),
+# so it is a protected root — always a keep-root, never in DELETE — and
+# `base` is republished by every single build in this repo's dependency
+# graph and is the smallest/cheapest image to resolve, since nothing in
+# `baseimages` builds without it. A canary that could itself be deleted
+# would prove nothing.
+canary:
+  package: baseimages/base
+  tag: alpine
+
+packages:
+  - match: baseimages/base
+  - match: baseimages/agent
+  - match: baseimages/golang
+  - match: baseimages/python
+  - match: baseimages/typescript
+  - match: baseimages/rover
+  - match: baseimages/all-in-one
+  - match: baseimages/nginx
+  - match: baseimages/static
+  - match: baseimages/runner
+
+  # Build cache: tags are overwritten on every push, so deleting one only
+  # forces a cold rebuild. Keep every tagged version; the churn is in the
+  # untagged layers beneath them.
+  - match: baseimages/buildcache
+    policy: cache
