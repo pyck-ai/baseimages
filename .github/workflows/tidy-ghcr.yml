@@ -34,7 +34,7 @@ on:
         type: string
         default: ''
       baseline:
-        description: 'Trailing baseline for the volume alarm (empty disables it for this run)'
+        description: 'Trailing baseline for the volume alarm (leave blank to disable it for this run)'
         type: number
 
 # Never cancel a running tidy job — partial cleanup is worse than no
@@ -46,13 +46,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A `workflow_dispatch` input declared `type: number` is only a number in
+  # the UI; at runtime `inputs.budget`/`inputs.baseline` are STRINGS (only
+  # `type: boolean` survives as a real boolean — see GitHub's docs). The
+  # callee's `workflow_call` inputs of the same names are declared
+  # `type: number`, and a `with:` value's runtime type must match the
+  # callee's declared type, so passing the bare string fails validation
+  # before a single job is created (the whole run shows "0 jobs" with no
+  # other diagnostic). `fromJSON(...)` parses the string back into a real
+  # JSON number, which is what the callee actually requires.
+  #
+  # `baseline` cannot be fixed the same way `budget` was, and needs its own
+  # job. The callee treats an *omitted* `baseline` as "disable the volume
+  # alarm" (see its own input description and `checkVolumeAlarm` in
+  # ghcr-tidy: `baseline: undefined` short-circuits to `allowed: true`
+  # before ever computing a threshold). But `baseline * multiple` for
+  # `baseline: 0` is `0`, and `checkVolumeAlarm` then refuses ANY plan that
+  # deletes more than zero versions — the exact opposite of "disabled". So
+  # there is no numeric sentinel that means "disabled": the key must be
+  # left out of `with:` entirely, and a `with:` block can't conditionally
+  # drop one of its own keys based on a runtime value. Hence two jobs,
+  # mutually exclusive on whether `inputs.baseline` was supplied at all:
+  # the first omits `baseline` (dispatch left it blank, matching the
+  # description above), the second includes it as a real number.
   tidy:
+    if: inputs.baseline == ''
     uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@aa1b5371195003963a01167243a3d14232ce2150
     with:
       apply: ${{ inputs.apply }}
-      budget: ${{ inputs.budget }}
+      budget: ${{ fromJSON(inputs.budget) }}
       package: ${{ inputs.package }}
-      baseline: ${{ inputs.baseline }}
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    secrets: inherit
+
+  tidy-with-baseline:
+    if: inputs.baseline != ''
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@aa1b5371195003963a01167243a3d14232ce2150
+    with:
+      apply: ${{ inputs.apply }}
+      budget: ${{ fromJSON(inputs.budget) }}
+      package: ${{ inputs.package }}
+      baseline: ${{ fromJSON(inputs.baseline) }}
     permissions:
       contents: read
       packages: read
