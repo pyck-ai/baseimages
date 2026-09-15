@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   tidy-repo:
-    uses: pyck-ai/github-actions/.github/workflows/tidy-repo.yml@12f4c2db2695ccf210fc8e1d915d4017c3a91631
+    uses: pyck-ai/github-actions/.github/workflows/tidy-repo.yml@be8e36d4bd4c1ed4b67ba60b0d453d76355051aa
     permissions:
       actions: write # required to delete workflow runs
       pull-requests: write # required to label/close issues and PRs
