@@ -2,9 +2,8 @@
 #
 # Package names are FULL names. This repo nests its images under a
 # `baseimages/` prefix, unlike github-runner and flutter-rfw which are top
-# level. That difference is exactly why there is no prefix-joining helper
-# anywhere in ghcr-tidy: the two bash implementations being replaced
-# concatenate prefixes in mutually incompatible ways.
+# level. ghcr-tidy has no prefix-joining helper, so every `match` entry
+# below must spell out the full package name.
 version: 1
 owner: pyck-ai
 

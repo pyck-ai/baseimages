@@ -1,9 +1,9 @@
 name: tidy-repo
 run-name: Tidy repository
 
-# Split out of the former cleanup.yml so these safe housekeeping jobs are not
-# blocked by the GHCR prune (moved to tidy-ghcr.yml), which is disabled
-# pending a redesign — see that workflow's header comment for why.
+# Safe repo-level housekeeping (stale issues/PRs, old branches, workflow
+# run cleanup). GHCR image retention is a separate concern, handled by
+# tidy-ghcr.yml.
 
 # Run daily at 12:00 UTC. Jobs are chained sequentially to avoid hitting GitHub API rate limits.
 on:
