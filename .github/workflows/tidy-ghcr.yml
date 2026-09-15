@@ -25,11 +25,14 @@ run-name: Tidy GHCR
 # "refuse any plan that deletes anything" — there's no numeric sentinel
 # for "off", so leaving it blank on workflow_dispatch is deliberate.
 #
-# CREDENTIAL: the shared workflow reads `secrets.GHCR_ADMIN_TOKEN` (a
-# classic PAT with read:packages, delete:packages, read:org) directly from
-# the `secrets` context rather than as a declared `workflow_call` secret,
-# so `secrets: inherit` below is required for `apply` to find it — an
-# explicit `secrets:` block cannot pass a secret the callee didn't declare.
+# CREDENTIAL: the shared workflow reads `secrets.GITHUB_TOKEN` directly
+# from the `secrets` context rather than as a declared `workflow_call`
+# secret, so `secrets: inherit` below is required for it to find it (an
+# explicit `secrets:` block cannot pass a secret the callee didn't
+# declare). The token needs `packages: write` on the callee's job, which
+# in turn means this caller's own `permissions:` block below must grant
+# `packages: write` too, since a reusable workflow can never hold a
+# permission its caller withheld.
 on:
   schedule:
     # Off-peak hour. CI on this repo publishes continuously, but
@@ -93,6 +96,6 @@ jobs:
       delete-broken-roots: ${{ github.event_name != 'schedule' && inputs.delete-broken-roots == true }}
     permissions:
       contents: read
-      packages: read
+      packages: write
       issues: write
     secrets: inherit
