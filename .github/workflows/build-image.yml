@@ -1,4 +1,4 @@
-name: build-images
+name: build-image
 run-name: Build and push Docker images
 
 # Publish on every push to main so merged changes go out immediately rather than

@@ -71,10 +71,10 @@ group "default" {
 # "target:y" }"
 # edges below, which is how bake knows a target needs another target built
 # first. Running both mechanisms meant every stage boundary cut across a
-# dependency edge, so build-images.yml re-resolved (and rebuilt) the subgraph
+# dependency edge, so build-image.yml re-resolved (and rebuilt) the subgraph
 # beneath each stage on every invocation — base-alpine alone was built seven
 # times per run. CI now derives its build matrix directly from these `contexts`
-# edges (see build-images.yml's `discover` job), grouping targets into the
+# edges (see build-image.yml's `discover` job), grouping targets into the
 # connected components of the dependency graph and building each component in
 # one `bake` invocation, which bake dedupes internally. Adding an image means
 # declaring its target and edges here — nothing under .github/ needs to change.
