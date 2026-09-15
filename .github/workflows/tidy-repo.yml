@@ -5,10 +5,16 @@ run-name: Tidy repository
 # run cleanup). GHCR image retention is a separate concern, handled by
 # tidy-ghcr.yml.
 
-# Run daily at 12:00 UTC. Jobs are chained sequentially to avoid hitting GitHub API rate limits.
+# Run daily at 15:00 UTC. Jobs are chained sequentially to avoid hitting GitHub API rate limits.
+#
+# Deliberately spaced from this repo's other two schedules (tidy-ghcr at
+# 03:00, build-image at 09:00 on weekdays) and from flutter-rfw's
+# tidy-repo at 12:00: all four repos share the same self-hosted runners,
+# so overlapping crons would queue jobs against each other for no reason.
+# Do not "tidy" this back in line with the other repos' slots.
 on:
   schedule:
-    - cron: '0 12 * * *'
+    - cron: '0 15 * * *'
   workflow_dispatch:
 
 # Never cancel a running maintenance job — partial cleanup is worse than no cleanup.
