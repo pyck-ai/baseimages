@@ -4,8 +4,7 @@ run-name: Tidy GHCR
 # Thin caller of the shared ghcr-tidy pipeline (see
 # pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml for the retention
 # model: reachability-based delete set, grace window, breaker, volume
-# alarm, canary and post-apply verification). This repo no longer carries
-# its own prune script. The nightly cron is armed.
+# alarm, canary and post-apply verification).
 #
 # SCHEDULE-VS-DISPATCH TYPING HAZARD: on a `schedule` event the top-level
 # `inputs` context is EMPTY, not defaulted — `workflow_dispatch` input

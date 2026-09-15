@@ -1,8 +1,9 @@
 name: build-images
 run-name: Build and push Docker images
 
-# Publish on every push to main so merged changes go out immediately, instead of
-# waiting for the next weekday cron slot (previously up to ~72h over a weekend).
+# Publish on every push to main so merged changes go out immediately rather than
+# waiting for the next weekday cron slot, which can be up to ~72h away over a
+# weekend.
 #
 # The weekday cron is kept alongside the push trigger, not made redundant by it: it
 # re-pulls upstream base images with unchanged tags, which is how CVE fixes that carry
@@ -34,7 +35,7 @@ jobs:
   # run inside each freshly pushed image) -> publish (apply tags) -> gate to
   # the shared workflow. See
   # pyck-ai/github-actions/.github/workflows/build-image.yml for the job
-  # shape; this repo no longer carries its own copy.
+  # shape.
   build:
     permissions:
       contents: read
