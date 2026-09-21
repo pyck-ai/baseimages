@@ -12,15 +12,26 @@ owner: pyck-ai
 # `ManifestCanary` doc for why this must live here rather than as a
 # workflow input (the `tidy-ghcr.yml` caller's `inputs` are empty on a
 # `schedule` trigger). `baseimages/base:alpine` is chosen deliberately:
-# `alpine` matches ghcr-tidy's own DEFAULT_PROTECTED_TAGS (`^alpine$`),
-# so it is a protected root — always a keep-root, never in DELETE — and
-# `base` is republished by every single build in this repo's dependency
-# graph and is the smallest/cheapest image to resolve, since nothing in
-# `baseimages` builds without it. A canary that could itself be deleted
-# would prove nothing.
+# `alpine` has no version token, so it decomposes to an unversioned
+# singleton kind and is unconditionally retained — always a keep-root,
+# never in DELETE — and `base` is republished by every single build in
+# this repo's dependency graph and is the smallest/cheapest image to
+# resolve, since nothing in `baseimages` builds without it. A canary
+# that could itself be deleted would prove nothing.
 canary:
   package: baseimages/base
   tag: alpine
+
+# The numbers that govern an irreversible deletion should be written
+# down in the repo they delete from, not inherited silently from a
+# default that could change out from under us. These currently equal
+# ghcr-tidy's own defaults, so pinning them here is not a behaviour
+# change.
+retention:
+  keepMajors: 1
+  keepMinors: 3
+  keepPatches: 5
+  keepDays: 30
 
 packages:
   - match: baseimages/base
@@ -34,8 +45,8 @@ packages:
   - match: baseimages/static
   - match: baseimages/runner
 
-  # Build cache: tags are overwritten on every push, so deleting one only
-  # forces a cold rebuild. Keep every tagged version; the churn is in the
-  # untagged layers beneath them.
+  # Build cache: none of its tags carry a version token (agent-alpine,
+  # aws, golang-debian, ...), so every one decomposes to an unversioned
+  # singleton kind and is unconditionally retained by the algorithm
+  # itself. Needs no configuration here.
   - match: baseimages/buildcache
-    policy: cache

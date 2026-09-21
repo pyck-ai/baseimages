@@ -74,7 +74,7 @@ concurrency:
 
 jobs:
   tidy:
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@be8e36d4bd4c1ed4b67ba60b0d453d76355051aa
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@7a9da15ce15a03ed11f8925e8de7e98cfc3df853
     with:
       # Plain OR of two real booleans (never a `||` fallback on
       # `inputs.apply` itself) — see the module header's typing-hazard
