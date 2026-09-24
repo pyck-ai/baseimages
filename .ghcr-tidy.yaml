@@ -24,14 +24,17 @@ canary:
 
 # The numbers that govern an irreversible deletion should be written
 # down in the repo they delete from, not inherited silently from a
-# default that could change out from under us. These currently equal
-# ghcr-tidy's own defaults, so pinning them here is not a behaviour
-# change.
+# default that could change out from under us. keepMajors, keepMinors
+# and keepPatches equal ghcr-tidy's own defaults. keepDays is raised
+# deliberately from the default 30 to 90 to keep recent builds around
+# longer: nothing younger than keepDays is ever deleted, tagged or not,
+# which makes it the primary safety control. Raising it can only retain
+# more; lowering it is the most dangerous edit available in this file.
 retention:
   keepMajors: 1
   keepMinors: 3
   keepPatches: 5
-  keepDays: 30
+  keepDays: 90
 
 packages:
   - match: baseimages/base
