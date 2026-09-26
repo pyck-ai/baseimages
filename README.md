@@ -25,7 +25,7 @@ Default `USER` follows the image's role:
 | Role | Images | Default user | Nonroot escape hatch |
 |------|--------|---------------|-----------------------|
 | Build substrate / developer tooling | `base`, `golang`, `python`, `typescript`, `rover`, `agent`, `all-in-one` | `root` (uid 0) | `--user 1001` drops to the `nonroot` account; each image's tool dirs are nonroot-owned |
-| Runtime / deployment | `nginx` (101), `static` (1001), `postgresql` (1001) | nonroot | `--user 0` elevates to root, e.g. to install packages or use the image as a build environment |
+| Runtime / deployment | `nginx` (101), `static` (1001), `postgresql` (1001), `valkey` (1001) | nonroot | `--user 0` elevates to root, e.g. to install packages or use the image as a build environment |
 
 Build-substrate images default to root so they work as GitHub Actions job containers: GHA runs steps as the image's `USER`, and steps routinely install packages (apt/apk) and write outside the workspace — the same reason the official `golang`/`python` images default to root. The `nonroot` account is uid/gid **1001** to match the uid our runners execute as ([`deployment/Dockerfile.runner`](https://github.com/pyck-ai/deployment/blob/main/Dockerfile.runner)), so the bind-mounted workspace stays writable and `actions/checkout` (git "dubious ownership"), `$GITHUB_ENV` and `$GITHUB_OUTPUT` keep working whenever an image does run as nonroot. Runtime images keep nonroot for deployment security. `WORKDIR` is `/app` for the images that use it; see each image's README for exceptions (`static` uses `/home/nonroot`).
 
@@ -62,6 +62,7 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 | [`nginx`](docker/nginx/README.md) | Unprivileged nginx for SPAs with OTel support |
 | [`postgresql`](docker/postgresql/README.md) | Hardened, unprivileged PostgreSQL for CI and local development |
 | [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
+| [`valkey`](docker/valkey/README.md) | Hardened, scratch-based Valkey (Redis-protocol-compatible) for CI and local development |
 
 
 ## Versioning
@@ -156,4 +157,5 @@ graph LR
 
   nginx-base --> nginx
   static --> postgresql
+  static --> valkey
 ```
