@@ -37,11 +37,13 @@ Both variants provide the same set of tools and conventions so downstream images
 
 | Package | Alpine | Debian | Purpose |
 |---------|--------|--------|---------|
+| age | `age` | `age` | File encryption tool |
 | Bash | `bash` | `bash` | POSIX-plus shell |
 | Build toolchain | `build-base`, `gcc`, `musl-dev`, `musl` | `build-essential`, `gcc` | C compiler and toolchain |
 | CA certificates | `ca-certificates` | `ca-certificates` | TLS trust store |
 | Core utils | `coreutils` | `coreutils` | GNU core utilities |
 | curl | `curl` | `curl` | HTTP client |
+| DNS lookup | `bind-tools` | `dnsutils` | dig/nslookup — Alpine ships `bind-tools`, Debian ships `dnsutils`; both provide the `dig` command |
 | fd | `fd` | `fd-find` | Fast file finder — Debian ships the binary as `fdfind`; the Dockerfile symlinks it to `fd`, so the command is `fd` on both variants |
 | file | `file` | `file` | File type detection |
 | gawk | `gawk` | `gawk` | AWK implementation |
@@ -49,14 +51,20 @@ Both variants provide the same set of tools and conventions so downstream images
 | gettext / envsubst | `gettext-envsubst` | `gettext` | `envsubst` template substitution |
 | git | `git` | `git` | Version control |
 | GnuPG | `gnupg` | `gnupg` | GPG signing/verification |
+| iputils (ping) | `iputils` | `iputils-ping` | ICMP ping |
 | jq | `jq` | `jq` | JSON processor |
 | Linux headers | `linux-headers` | `linux-headers-<arch>` | Kernel headers for native builds |
 | make | `make` | `make` | Build automation |
+| netcat | `netcat-openbsd` | `netcat-openbsd` | Port/health checks in CI scripts (`nc`) |
 | OpenSSH client | `openssh-client` | `openssh-client` | SSH client |
+| OpenSSL | `openssl` | `openssl` | TLS/cert CLI tooling |
 | patch | `patch` | `patch` | Apply diffs |
+| PostgreSQL client | `postgresql-client` | `postgresql-client` | psql/pg_dump/pg_isready for DB access in CI |
 | rclone | `rclone` | `rclone` | Cloud storage sync |
 | ripgrep | `ripgrep` | `ripgrep` | Fast recursive search |
 | rsync | `rsync` | `rsync` | File sync |
+| shellcheck | `shellcheck` | `shellcheck` | Shell script linting |
+| SQLite | `sqlite` | `sqlite3` | Local DB inspection — Alpine's package is named `sqlite` but Debian's is `sqlite3`; both provide the `sqlite3` command |
 | tar | `tar` | `tar` | Archive tool |
 | tzdata | `tzdata` | `tzdata` | Timezone database |
 | unzip | `unzip` | `unzip` | Zip extraction |
@@ -75,6 +83,7 @@ Both variants provide the same set of tools and conventions so downstream images
 | [Helm](https://helm.sh) | `helm` | ✅ | ✅ | upstream release, `HELM_VERSION` |
 | [kubectl](https://kubernetes.io/docs/reference/kubectl/) | `kubectl` | ✅ | ✅ | dl.k8s.io release, `KUBECTL_VERSION` |
 | [kustomize](https://kustomize.io) | `kustomize` | ✅ | ✅ | GitHub release, `KUSTOMIZE_VERSION` |
+| [SOPS](https://github.com/getsops/sops) | `sops` | ✅ | ✅ | GitHub release, `SOPS_VERSION` |
 | [watchexec](https://github.com/watchexec/watchexec) | `watchexec` | ✅ | ✅ | GitHub release, `WATCHEXEC_VERSION` |
 
 ### Environment

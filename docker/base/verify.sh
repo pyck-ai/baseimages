@@ -70,20 +70,21 @@ check_workdir /app
 check_writable_as nonroot /app
 
 # Shell, VCS and the archive/search tooling every downstream image relies on.
-check_cmd bash git curl wget jq rg rsync rclone tar unzip zip xz zstd gpg make gcc file gawk patch ssh
+check_cmd bash git curl wget jq rg rsync rclone tar unzip zip xz zstd gpg make gcc file gawk patch ssh age dig ping nc openssl psql shellcheck sqlite3
 
 # fd is packaged as `fd` on Alpine but `fd-find` on Debian, which installs the
 # binary as `fdfind`; the Debian Dockerfile symlinks it. Assert the name.
 check_cmd fd
 
 # Third-party tools, checked against the versions buildargs.conf pins.
-check_cmd task flyctl gh helm kubectl kustomize watchexec
+check_cmd task flyctl gh helm kubectl kustomize sops watchexec
 check_version "task --version"                "$TASKFILE_VERSION"
 check_version "flyctl --version"              "version $FLYCTL_VERSION"
 check_version "gh --version"                  "version $GHCLI_VERSION"
 check_version "helm version"                  "Version:\"v$HELM_VERSION\""
 check_version "kubectl version --client=true" "Client Version: v$KUBECTL_VERSION"
 check_version "kustomize version"             "v$KUSTOMIZE_VERSION"
+check_version "sops --version"                "$SOPS_VERSION"
 check_version "watchexec --version"           "watchexec $WATCHEXEC_VERSION"
 
 # download.sh is inherited by every downstream image's build stages.
