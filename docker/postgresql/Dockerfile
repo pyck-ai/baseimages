@@ -69,8 +69,13 @@ install -D /lib/ld-musl-*.so.1 -t /rootfs/lib/
 # above, so ldd never sees it — copy it explicitly.
 install -D /usr/lib/libnss_wrapper.so -t /rootfs/usr/lib/
 
-# Busybox applets docker-entrypoint.sh needs on PATH: a shell to interpret
-# its own shebang, plus id/mktemp/rm.
+# Only the busybox applets docker-entrypoint.sh itself actually calls at
+# runtime: a shell to interpret its own shebang, plus id/mktemp/rm.
+# verify.sh needs a few more (printenv/grep/cat/kill/sleep) that the running
+# server never does — those are NOT shipped here; CI's verify-image action
+# retries verify.sh against a derived busybox overlay if it fails against
+# the image as shipped, precisely so this image doesn't have to carry
+# CI-only tooling permanently. See docker/postgresql/verify.sh.
 for applet in sh id mktemp rm; do
     ln -sf busybox "/rootfs/bin/$applet"
 done

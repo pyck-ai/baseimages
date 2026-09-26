@@ -10,7 +10,7 @@ There is no free, officially-maintained, non-root PostgreSQL base image to build
 
 Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`ALPINE_VERSION`, `POSTGRESQL_VERSION`).
 
-Being built on `static`, this image ships only the busybox applets its own entrypoint needs (`sh`, `id`, `mktemp`, `rm`) — not a general-purpose shell environment.
+Being built on `static`, this image ships only the busybox applets its own entrypoint needs (`sh`, `id`, `mktemp`, `rm`) — not a general-purpose shell environment, and not whatever extra tools `verify.sh` itself happens to use in CI (`printenv`, `grep`, `cat`, `kill`, `sleep`). The CI verify step retries against a throwaway busybox-overlay image if `verify.sh` fails against the shipped image as-is, precisely so those CI-only tools never have to ship permanently at runtime.
 
 ## Tags
 

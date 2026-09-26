@@ -1,14 +1,20 @@
 #!/bin/sh
-# Verifies the assembled postgresql image. The shipped image deliberately
-# carries only the busybox applets its own entrypoint needs (sh, id, mktemp,
-# rm) — not a general-purpose shell environment — so this script needs a
-# derived image with a fuller busybox layered on top, the same technique
-# docker/static and docker/valkey use to verify their own minimal images:
-#   printf 'FROM %s\nCOPY --from=busybox:musl /bin /bin\n' <postgresql-ref> | \
-#     docker build -f - -t postgresql-verify .
+# Verifies the assembled postgresql image, run INSIDE the image as its
+# default user, no overlay needed. Unlike docker/static and docker/valkey
+# (which ship no shell at all), this image ships a real /bin/sh so
+# docker-entrypoint.sh has something to interpret its own shebang with; the
+# busybox applets it carries are an exact, enumerated list — id/mktemp/rm
+# for the entrypoint, plus printenv/grep/cat/kill/sleep for this script —
+# not the full busybox --install catalog. Invoked as:
 #   docker run --rm --env-file buildargs.conf -e TARGET=postgresql \
 #     -v $PWD/docker/postgresql/verify.sh:/verify.sh:ro --entrypoint /bin/sh \
-#     postgresql-verify /verify.sh
+#     <ref> /verify.sh
+#
+# CI's verify-image action only layers a busybox overlay onto a target when
+# /bin/sh is entirely absent — this image's /bin/sh works, so CI runs this
+# script directly against the shipped image with no overlay. Verify it the
+# same way locally; running it against a manually-added overlay instead
+# would mask a missing applet that CI would then fail on for real.
 
 fails=0
 ok()  { echo "ok   $*"; }
