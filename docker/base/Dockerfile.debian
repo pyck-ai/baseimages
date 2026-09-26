@@ -16,11 +16,13 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
     --mount=type=cache,id=apt-listscache,target=/var/lib/apt/lists/,sharing=locked\
     apt-get update &&\
     apt-get install -y --no-install-recommends\
+        age\
         bash\
         build-essential\
         ca-certificates\
         coreutils\
         curl\
+        dnsutils\
         fd-find\
         file\
         gawk\
@@ -28,14 +30,20 @@ RUN --mount=type=cache,id=apt-cache,target=/var/cache/apt/,sharing=locked\
         gettext\
         git\
         gnupg\
+        iputils-ping\
         jq\
         linux-headers-${TARGETARCH}\
         make\
+        netcat-openbsd\
         openssh-client\
+        openssl\
         patch\
+        postgresql-client\
         rclone\
         ripgrep\
         rsync\
+        shellcheck\
+        sqlite3\
         tar\
         tzdata\
         unzip\
@@ -131,6 +139,19 @@ RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
     --install-to "/usr/local/bin/"\
     --verify "kustomize version | grep -qF 'v{version}'"
 
+FROM base AS sops
+ARG TARGETPLATFORM TARGETARCH SOPS_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${SOPS_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/getsops/sops/releases/download/v{version}/sops-v{version}.linux.{arch}"\
+    --checksum-url "https://github.com/getsops/sops/releases/download/v{version}/sops-v{version}.checksums.txt"\
+    --install-to "/usr/local/bin/"\
+    --post-install "mv /usr/local/bin/sops-v{version}.linux.{arch} /usr/local/bin/sops"\
+    --verify "sops --version | grep -qF '{version}'"
+
 FROM base AS watchexec
 ARG TARGETPLATFORM TARGETARCH WATCHEXEC_VERSION
 RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
@@ -157,6 +178,7 @@ COPY --from=ghcli /usr/local/bin/gh /usr/local/bin/
 COPY --from=helm /usr/local/bin/helm /usr/local/bin/
 COPY --from=kubectl /usr/local/bin/kubectl /usr/local/bin/
 COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/
+COPY --from=sops /usr/local/bin/sops /usr/local/bin/
 COPY --from=watchexec /usr/local/bin/watchexec /usr/local/bin/
 
 RUN git config --system --add safe.directory "*"
