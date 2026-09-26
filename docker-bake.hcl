@@ -62,7 +62,7 @@ target "_common" {
 group "default" {
   targets = [
     "base", "golang", "python", "typescript", "agent",
-    "rover", "all-in-one", "nginx", "static", "postgresql",
+    "rover", "all-in-one", "nginx", "static", "postgresql", "valkey",
   ]
 }
 
@@ -372,11 +372,24 @@ target "typescript-debian" {
     ["${REGISTRY}/typescript:debian"],
     vtags(REGISTRY, "typescript", BUN_VERSION, "", "-debian"),
   )
-  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian"]
+   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian,mode=max"]
 }
 
+# ==============================================================================
+# VALKEY
+# ==============================================================================
 
+target "valkey" {
+  inherits = ["_common"]
+  context = "./docker/valkey"
+  dockerfile = "Dockerfile"
+  tags = [
+    "${REGISTRY}/valkey:latest",
+  ]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:valkey"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:valkey,mode=max"]
+}
 
 # ==============================================================================
 # ALL-IN-ONE
