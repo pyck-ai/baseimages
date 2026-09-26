@@ -62,7 +62,7 @@ target "_common" {
 group "default" {
   targets = [
     "base", "golang", "python", "typescript", "agent",
-    "rover", "all-in-one", "nginx", "static", "postgresql", "valkey",
+    "rover", "all-in-one", "nginx", "static", "postgresql", "valkey", "nats",
   ]
 }
 
@@ -209,6 +209,25 @@ target "golang-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:golang-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:golang-debian,mode=max"]
+}
+
+# ==============================================================================
+# NATS
+# ==============================================================================
+
+target "nats" {
+  inherits = ["_common"]
+  context = "./docker/nats"
+  dockerfile = "Dockerfile"
+  contexts = {
+    "base"   = "target:base-alpine"
+    "static" = "target:static"
+  }
+  tags = [
+    "${REGISTRY}/nats:latest",
+  ]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nats"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nats,mode=max"]
 }
 
 # ==============================================================================
