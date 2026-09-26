@@ -22,6 +22,7 @@ variable "PI_VERSION" {}
 variable "BUN_VERSION" {}
 variable "PYTHON_VERSION" {}
 variable "ROVER_VERSION" {}
+variable "POSTGRESQL_VERSION" {}
 
 # Returns version tags for a given image, supporting 1-, 2-, or 3-part versions.
 # prefix/suffix wrap each version segment (e.g., prefix="alpine-" or suffix="-alpine").
@@ -61,7 +62,7 @@ target "_common" {
 group "default" {
   targets = [
     "base", "golang", "python", "typescript", "agent",
-    "rover", "all-in-one", "nginx", "static",
+    "rover", "all-in-one", "nginx", "static", "postgresql",
   ]
 }
 
@@ -224,6 +225,22 @@ target "nginx" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:nginx"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:nginx,mode=max"]
+}
+
+# ==============================================================================
+# POSTGRESQL
+# ==============================================================================
+
+target "postgresql" {
+  inherits = ["_common"]
+  context = "./docker/postgresql"
+  dockerfile = "Dockerfile"
+  tags = [
+    "${REGISTRY}/postgresql:latest",
+    "${REGISTRY}/postgresql:${POSTGRESQL_VERSION}",
+  ]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:postgresql"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:postgresql,mode=max"]
 }
 
 # ==============================================================================
