@@ -40,7 +40,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@e11b1f384df6cf1a71b5ace1f741f7717880b866 # v0.1.0
+    # Pinned to pyck-ai/github-actions#34 (verify-image: retry with a busybox
+    # overlay when verify.sh fails, not just when the image has no shell at
+    # all) — needed for the postgresql image's verify.sh to pass CI. Merged
+    # to main via fast-forward, so this SHA is main's tip as of the merge.
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@6f2de33e625080c4542ca6e29610062b0afa9b82 # pyck-ai/github-actions#34, on main
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
