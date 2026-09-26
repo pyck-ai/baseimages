@@ -128,7 +128,6 @@ graph LR
   base-alpine["base:alpine"]
   base-debian["base:debian"]
   nginx-base["nginxinc/nginx-unprivileged"]
-  alpine-upstream["alpine"]
 
   base-alpine --> static
   base-alpine --> golang-alpine["golang:alpine"]
@@ -156,5 +155,5 @@ graph LR
   python-debian --> aio-debian
 
   nginx-base --> nginx
-  alpine-upstream --> postgresql
+  static --> postgresql
 ```

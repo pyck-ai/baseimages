@@ -235,6 +235,9 @@ target "postgresql" {
   inherits = ["_common"]
   context = "./docker/postgresql"
   dockerfile = "Dockerfile"
+  contexts = {
+    "static" = "target:static"
+  }
   tags = [
     "${REGISTRY}/postgresql:latest",
     "${REGISTRY}/postgresql:${POSTGRESQL_VERSION}",

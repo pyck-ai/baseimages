@@ -1,8 +1,14 @@
 #!/bin/sh
-# Verifies the assembled postgresql image, run INSIDE the image as its
-# default user. Invoked as:
+# Verifies the assembled postgresql image. The shipped image deliberately
+# carries only the busybox applets its own entrypoint needs (sh, id, mktemp,
+# rm) — not a general-purpose shell environment — so this script needs a
+# derived image with a fuller busybox layered on top, the same technique
+# docker/static and docker/valkey use to verify their own minimal images:
+#   printf 'FROM %s\nCOPY --from=busybox:musl /bin /bin\n' <postgresql-ref> | \
+#     docker build -f - -t postgresql-verify .
 #   docker run --rm --env-file buildargs.conf -e TARGET=postgresql \
-#     -v $PWD/docker/postgresql/verify.sh:/verify.sh:ro --entrypoint /bin/sh <ref> /verify.sh
+#     -v $PWD/docker/postgresql/verify.sh:/verify.sh:ro --entrypoint /bin/sh \
+#     postgresql-verify /verify.sh
 
 fails=0
 ok()  { echo "ok   $*"; }
@@ -35,7 +41,11 @@ initializes_and_serves() {
 	export POSTGRES_PASSWORD=verify
 	export POSTGRES_DB=verifydb
 
-	docker-entrypoint.sh postgres >/tmp/pg.log 2>&1 &
+	# No /tmp in this scratch-based image (never provisioned — nothing in the
+	# entrypoint needs one), so the verify log goes next to PGDATA instead.
+	logfile=/var/lib/postgresql/pg-verify.log
+
+	/usr/local/bin/docker-entrypoint.sh postgres >"$logfile" 2>&1 &
 	pid=$!
 
 	i=0
@@ -48,13 +58,13 @@ initializes_and_serves() {
 	done
 
 	if ! pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
-		cat /tmp/pg.log >&2
+		cat "$logfile" >&2
 		kill "$pid" 2>/dev/null
 		return 1
 	fi
 
-	if ! PGPASSWORD=verify psql -h 127.0.0.1 -U postgres -d verifydb -tAc 'select 1' 2>>/tmp/pg.log | grep -qF 1; then
-		cat /tmp/pg.log >&2
+	if ! PGPASSWORD=verify psql -h 127.0.0.1 -U postgres -d verifydb -tAc 'select 1' 2>>"$logfile" | grep -qF 1; then
+		cat "$logfile" >&2
 		kill "$pid" 2>/dev/null
 		return 1
 	fi
