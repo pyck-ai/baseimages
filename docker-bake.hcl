@@ -384,6 +384,9 @@ target "valkey" {
   inherits = ["_common"]
   context = "./docker/valkey"
   dockerfile = "Dockerfile"
+  contexts = {
+    "static" = "target:static"
+  }
   tags = [
     "${REGISTRY}/valkey:latest",
   ]

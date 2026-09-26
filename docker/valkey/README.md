@@ -8,11 +8,11 @@ Redis moved off pure open source starting with 7.4 (RSALv2/SSPLv1 dual-licensed)
 
 ## Based on
 
-`scratch`, populated with only `valkey-server`/`valkey-cli` and their actual traced shared-library closure from a fresh `alpine:<alpine_version>` builder stage (the same Alpine major pinned in [`buildargs.conf`](../../buildargs.conf)) — not this repo's own `base` image (which bundles a large, irrelevant CLI toolchain), and not a plain "alpine + `apk add`" image either, which would still ship the package manager, its cache, docs, and the rest of Alpine's default userland. The library closure is discovered mechanically via `ldd` at build time, not hand-picked, so an Alpine/Valkey update that changes the dependency set fails the build loudly instead of silently shipping a broken image. Same pattern as this repo's [`static`](../static/README.md) image.
+This repo's own [`static`](../static/README.md) image, not a fresh `alpine:<alpine_version>` and not this repo's `base` image (which bundles a large, irrelevant CLI toolchain). `static` already provides everything a from-scratch stage would otherwise have to re-derive — the nonroot uid/gid 1001 convention and its `/etc/passwd`/`/etc/group` entries, a writable sticky `/tmp`, CA certs, and timezone data — so this image only adds what's actually specific to Valkey: a builder stage installs Alpine's `valkey`/`valkey-cli` packages (the same Alpine major pinned in [`buildargs.conf`](../../buildargs.conf)) purely to let `apk` resolve the real dependency set, then only `valkey-server`/`valkey-cli` and their *actual* shared-library closure — traced mechanically via `ldd`, not hand-picked — are copied on top of `static`. An Alpine/Valkey update that changes the dependency set fails this build loudly instead of silently shipping a broken image.
 
 There is no free, officially-maintained, non-root Valkey/Redis base image to build on the way `nginx` builds on `nginxinc/nginx-unprivileged` — see "Why not an upstream hardened image" below.
 
-Being `scratch`-based, this image has **no shell, no package manager, and no `docker exec` convenience** beyond directly running one of the two shipped binaries.
+Being built on `static`, this image has **no general-purpose shell, no package manager, and no `docker exec` convenience** beyond directly running one of the two shipped binaries.
 
 ## Tags
 
@@ -32,7 +32,8 @@ Installed in the (discarded) builder stage only, to let `apk` resolve the real d
 |---------|---------|
 | `valkey` | Valkey server (`valkey-server`, plus `valkey-check-aof`/`valkey-check-rdb`/`valkey-sentinel` symlinks) |
 | `valkey-cli` | Valkey/Redis CLI client (a separate Alpine package from `valkey` itself) |
-| `ca-certificates`, `tzdata` | TLS trust store, timezone database (UTC) — files copied into the final image, not the packages |
+
+CA certs and timezone data come from `static`, not from a package installed here.
 
 ### Configuration
 
