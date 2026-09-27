@@ -1,0 +1,7 @@
+// This repo's own pyck-review rules. See
+// https://github.com/pyck-ai/pyck-review for what reads this file, and its
+// README for the rule schema and how a repo's own rules combine with a
+// preset's.
+{
+  extends: ["renovate"],
+}
