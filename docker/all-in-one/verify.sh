@@ -1,7 +1,7 @@
 #!/bin/sh
 # Verifies the assembled all-in-one image, run INSIDE the image as its
 # default user (root). Invoked as:
-#   docker run --rm --env-file buildargs.conf -e TARGET=all-in-one-alpine|all-in-one-debian \
+#   docker run --rm --env-file buildargs.conf -e TARGET=all-in-one-alpine|all-in-one-debian|all-in-one-wolfi \
 #     -v $PWD/docker/all-in-one/verify.sh:/verify.sh:ro --entrypoint /bin/sh <ref> /verify.sh
 
 fails=0
@@ -95,10 +95,10 @@ check_version "python --version"   "$PYTHON_VERSION"
 check_version "uv --version"       "$UV_VERSION"
 check_version "ruff --version"     "$RUFF_VERSION"
 
-# rover ships glibc binaries only, so it is Debian-only; assert both sides of
+# rover ships glibc binaries only, so it is on Debian and Wolfi only; assert both sides of
 # the split so this cannot silently drift.
 case "$TARGET" in
-    *-debian)
+    *-debian|*-wolfi)
         check_cmd rover
         check_version "rover --version" "$ROVER_VERSION"
         ;;
@@ -117,16 +117,16 @@ case "$TARGET" in
         check_env LD_PRELOAD /usr/local/lib/claude_fix.so
         check_file /usr/local/lib/claude_fix.so
         ;;
-    *-debian)
+    *-debian|*-wolfi)
         if [ -z "${LD_PRELOAD:-}" ]; then
-            ok "no LD_PRELOAD shim on debian"
+            ok "no LD_PRELOAD shim on glibc variant"
         else
-            bad "no LD_PRELOAD shim on debian"
+            bad "no LD_PRELOAD shim on glibc variant"
         fi
         if [ ! -e /usr/local/lib/claude_fix.so ]; then
-            ok "claude_fix.so absent on debian"
+            ok "claude_fix.so absent on glibc variant"
         else
-            bad "claude_fix.so absent on debian"
+            bad "claude_fix.so absent on glibc variant"
         fi
         ;;
 esac

@@ -8,12 +8,13 @@ A container image bundling coding-agent CLIs — [Claude Code](https://claude.ai
 |---------|-----|----------|
 | Alpine | `agent:alpine` | our [base](../base/README.md) (Alpine) — musl Claude build with a `posix_getdents` compatibility shim, native musl opencode build |
 | Debian | `agent:debian` | our [base](../base/README.md) (Debian) — glibc Claude and opencode builds, no shim required |
+| Wolfi | `agent:wolfi` | our [base](../base/README.md) (Wolfi): glibc Claude and opencode builds, no shim required |
 
-Both variants install the Bun runtime that powers pi (see [Bun runtime and Node compatibility](#bun-runtime-and-node-compatibility)). Current versions are defined in [`buildargs.conf`](../../buildargs.conf) (`CLAUDE_VERSION`, `OPENCODE_VERSION`, `PI_VERSION`, `BUN_VERSION`).
+All three variants install the Bun runtime that powers pi (see [Bun runtime and Node compatibility](#bun-runtime-and-node-compatibility)). Current versions are defined in [`buildargs.conf`](../../buildargs.conf) (`CLAUDE_VERSION`, `OPENCODE_VERSION`, `PI_VERSION`, `BUN_VERSION`).
 
 ## Tags
 
-Because the image ships more than one tool, version tags are namespaced per tool (`claude-…`, `opencode-…`, and `pi-…`), each with major.minor and major aliases. The floating `latest`/`alpine`/`debian` tags always track the most recent build of all three.
+Because the image ships more than one tool, version tags are namespaced per tool (`claude-…`, `opencode-…`, and `pi-…`), each with major.minor and major aliases. The floating `latest`/`alpine`/`debian`/`wolfi` tags always track the most recent build of all three tools.
 
 ### Alpine tags
 
@@ -37,11 +38,20 @@ Because the image ships more than one tool, version tags are namespaced per tool
 | `agent:opencode-<version>-debian` | Pinned opencode version on Debian (also major / major.minor aliases) |
 | `agent:pi-<version>-debian` | Pinned pi version on Debian (also major / major.minor aliases) |
 
+### Wolfi tags
+
+| Tag | Description |
+|-----|-------------|
+| `agent:wolfi` | Most recent build (Wolfi) |
+| `agent:claude-<version>-wolfi` | Pinned Claude Code version on Wolfi (also major / major.minor aliases) |
+| `agent:opencode-<version>-wolfi` | Pinned opencode version on Wolfi (also major / major.minor aliases) |
+| `agent:pi-<version>-wolfi` | Pinned pi version on Wolfi (also major / major.minor aliases) |
+
 ## What is included
 
 ### Alpine compatibility shim
 
-The official Claude Code binaries reference `posix_getdents`, a symbol not provided by musl libc. A small C shim (`claude_fix.so`) is compiled and loaded via `LD_PRELOAD` to satisfy this dependency without requiring glibc. opencode ships a native musl build and needs no shim.
+The official Claude Code binaries reference `posix_getdents`, a symbol not provided by musl libc. A small C shim (`claude_fix.so`) is compiled and loaded via `LD_PRELOAD` to satisfy this dependency without requiring glibc. opencode ships a native musl build and needs no shim. Debian and Wolfi use glibc Claude Code and opencode builds directly, so neither needs the shim.
 
 | File | Purpose |
 |------|---------|
@@ -49,17 +59,17 @@ The official Claude Code binaries reference `posix_getdents`, a symbol not provi
 
 ### Bun runtime and Node compatibility
 
-pi is a JavaScript CLI installed with `bun add -g --ignore-scripts` into `/bun` (`BUN_INSTALL`), which places its binary on `PATH` at `/bun/bin/pi` (also symlinked to `/usr/local/bin/pi`). That binary is a `#!/usr/bin/env node` script, and the image ships no separate Node.js runtime — so `node` is symlinked to `bun`, which runs the script in Node-compatibility mode. Both variants use the same Bun build as the [`typescript`](../typescript/README.md) image.
+pi is a JavaScript CLI installed with `bun add -g --ignore-scripts` into `/bun` (`BUN_INSTALL`), which places its binary on `PATH` at `/bun/bin/pi` (also symlinked to `/usr/local/bin/pi`). That binary is a `#!/usr/bin/env node` script, and the image ships no separate Node.js runtime, so `node` is symlinked to `bun`, which runs the script in Node-compatibility mode. All three variants use the same Bun build as the [`typescript`](../typescript/README.md) image.
 
 ### Tools
 
-| Tool | Binary | Alpine | Debian | Source |
-|------|--------|--------|--------|--------|
-| [Claude Code](https://claude.ai/code) | `claude` | ✅ | ✅ | GCS release, `CLAUDE_VERSION` |
-| [opencode](https://opencode.ai) | `opencode` | ✅ | ✅ | GitHub release, `OPENCODE_VERSION` |
-| [pi](https://github.com/earendil-works/pi) | `pi` | ✅ | ✅ | Bun global install (`/bun/bin/pi`, symlinked to `/usr/local/bin/pi`), `PI_VERSION` |
-| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | GitHub release, `BUN_VERSION` |
-| Node compatibility | `node` → `bun` | ✅ | ✅ | Symlink so pi's `#!/usr/bin/env node` entrypoint runs under Bun |
+| Tool | Binary | Alpine | Debian | Wolfi | Source |
+|------|--------|--------|--------|-------|--------|
+| [Claude Code](https://claude.ai/code) | `claude` | ✅ | ✅ | ✅ | GCS release, `CLAUDE_VERSION` |
+| [opencode](https://opencode.ai) | `opencode` | ✅ | ✅ | ✅ | GitHub release, `OPENCODE_VERSION` |
+| [pi](https://github.com/earendil-works/pi) | `pi` | ✅ | ✅ | ✅ | Bun global install (`/bun/bin/pi`, symlinked to `/usr/local/bin/pi`), `PI_VERSION` |
+| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | ✅ | GitHub release, `BUN_VERSION` |
+| Node compatibility | `node` → `bun` | ✅ | ✅ | ✅ | Symlink so pi's `#!/usr/bin/env node` entrypoint runs under Bun |
 
 ### Environment
 
@@ -69,7 +79,7 @@ pi is a JavaScript CLI installed with `bun add -g --ignore-scripts` into `/bun` 
 | `BUN_INSTALL` | `/bun` | Bun global install prefix; `bun add -g` binaries land in `/bun/bin` |
 | `PATH` | prepends `/bun/bin` | Global Bun-installed binaries (e.g. `pi`) on PATH |
 
-The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md); Alpine and Wolfi do not set it.
 
 ### Default user
 
@@ -119,7 +129,8 @@ docker run --rm \
 ## Build
 
 ```sh
-task build -- agent            # both alpine and debian variants
+task build -- agent            # all three variants
 task build -- agent-alpine     # alpine only
 task build -- agent-debian     # debian only
+task build -- agent-wolfi      # wolfi only
 ```

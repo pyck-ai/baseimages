@@ -1,0 +1,103 @@
+# syntax=docker/dockerfile:1
+
+ARG GOLANG_VERSION=1
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+# No official golang:<version>-wolfi upstream image exists (Docker's golang
+# image only publishes bookworm/bullseye/alpine variants), so Go itself is
+# installed the same way every other pinned tool in this repo is: a checksum-
+# verified download, straight from go.dev rather than a GitHub release.
+# Wolfi is glibc-based, so the standard linux-{arch} tarball applies as-is.
+FROM base AS golang
+ARG TARGETPLATFORM TARGETARCH GOLANG_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOLANG_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://go.dev/dl/go{version}.linux-{arch}.tar.gz"\
+    --checksum-url "https://go.dev/dl/?mode=json&include=all"\
+    --checksum-jq '.[] | select(.version == "go{version}") | .files[] | select(.filename == "go{version}.linux-{arch}.tar.gz") | .sha256 + "  " + .filename'\
+    --install-paths "go"\
+    --install-to "/usr/local/"\
+    --verify "/usr/local/go/bin/go version | grep -qF 'go version go{version} linux/'"
+
+FROM golang AS delve
+ARG TARGETPLATFORM TARGETARCH DELVE_VERSION
+ENV PATH="/usr/local/go/bin:${PATH}"
+# Temporary workaround: install dlv via `go install` instead of downloading the
+# GitHub release artifact, because upstream's release CI is currently not
+# attaching prebuilt binaries/checksums to the release (breaking download.sh).
+# Revert to the release-artifact download once upstream restores release assets.
+RUN --mount=type=cache,id=go-build,target=/root/.cache/go-build,sharing=shared\
+    --mount=type=cache,id=go-mod,target=/go/pkg/mod,sharing=shared\
+    CGO_ENABLED=0 GOBIN=/usr/local/bin go install github.com/go-delve/delve/cmd/dlv@v${DELVE_VERSION}\
+    && dlv version | grep -qF "Version: ${DELVE_VERSION}"
+
+FROM base AS goarchlint
+ARG TARGETPLATFORM TARGETARCH GOARCHLINT_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOARCHLINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/go-arch-lint_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/fe3dback/go-arch-lint/releases/download/v{version}/checksums.txt"\
+    --install-paths "go-arch-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "go-arch-lint version --output-color=false | grep -qF 'version: {version}'"
+
+FROM base AS golangcilint
+ARG TARGETPLATFORM TARGETARCH GOLANGCILINT_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOLANGCILINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-linux-{arch}.tar.gz"\
+    --checksum-url "https://github.com/golangci/golangci-lint/releases/download/v{version}/golangci-lint-{version}-checksums.txt"\
+    --install-paths "golangci-lint-{version}-linux-{arch}/golangci-lint"\
+    --install-to "/usr/local/bin/"\
+    --verify "golangci-lint --version | grep -qF 'version {version}'"
+
+FROM base AS gotestsum
+ARG TARGETPLATFORM TARGETARCH GOTESTSUM_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GOTESTSUM_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/gotestyourself/gotestsum/releases/download/v{version}/gotestsum-{version}-checksums.txt"\
+    --install-paths "gotestsum"\
+    --install-to "/usr/local/bin/"\
+    --verify "gotestsum --version | grep -qF 'version v{version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM base
+USER root
+
+ENV GOPATH=/go
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
+ENV GOCACHE=/var/cache/go/
+ENV GOMODCACHE=/go/pkg/mod/
+# Internal Go module proxy with fallback to direct. Mount GOCACHE and GOMODCACHE as volumes in CI to persist across builds.
+ENV GOPROXY=https://go.pyck.cloud,direct
+# All builds are statically linked by default; set CGO_ENABLED=1 explicitly if you need cgo.
+ENV CGO_ENABLED=0
+
+COPY --from=golang /usr/local/go /usr/local/go
+RUN install -d -o nonroot -g nonroot /go /go/bin /go/pkg/mod /var/cache/go
+
+COPY --from=delve /usr/local/bin/dlv /usr/local/bin/
+COPY --from=goarchlint /usr/local/bin/go-arch-lint /usr/local/bin/
+COPY --from=golangcilint /usr/local/bin/golangci-lint /usr/local/bin/
+COPY --from=gotestsum /usr/local/bin/gotestsum /usr/local/bin/
+
+WORKDIR /app

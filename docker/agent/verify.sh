@@ -1,7 +1,7 @@
 #!/bin/sh
 # Verifies the assembled agent image, run INSIDE the image as its default
 # user (root). Invoked as:
-#   docker run --rm --env-file buildargs.conf -e TARGET=agent-alpine|agent-debian \
+#   docker run --rm --env-file buildargs.conf -e TARGET=agent-alpine|agent-debian|agent-wolfi \
 #     -v $PWD/docker/agent/verify.sh:/verify.sh:ro --entrypoint /bin/sh <ref> /verify.sh
 
 fails=0
@@ -90,18 +90,18 @@ case "$TARGET" in
         check_env LD_PRELOAD /usr/local/lib/claude_fix.so
         check_file /usr/local/lib/claude_fix.so
         ;;
-    *-debian)
-        # Debian uses the native glibc build and ships no shim; assert its
+    *-debian|*-wolfi)
+        # Debian and Wolfi use the native glibc build and ship no shim; assert its
         # absence so the two variants cannot silently converge.
         if [ -z "${LD_PRELOAD:-}" ]; then
-            ok "no LD_PRELOAD shim on debian"
+            ok "no LD_PRELOAD shim on glibc variant"
         else
-            bad "no LD_PRELOAD shim on debian"
+            bad "no LD_PRELOAD shim on glibc variant"
         fi
         if [ ! -e /usr/local/lib/claude_fix.so ]; then
-            ok "claude_fix.so absent on debian"
+            ok "claude_fix.so absent on glibc variant"
         else
-            bad "claude_fix.so absent on debian"
+            bad "claude_fix.so absent on glibc variant"
         fi
         ;;
 esac

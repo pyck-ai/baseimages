@@ -1,0 +1,80 @@
+# syntax=docker/dockerfile:1
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM base AS bun
+ARG TARGETPLATFORM TARGETARCH BUN_VERSION PI_VERSION
+
+ENV BUN_INSTALL=/bun
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${BUN_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/bun-linux-{arch}.zip"\
+    --checksum-url "https://github.com/oven-sh/bun/releases/download/bun-v{version}/SHASUMS256.txt"\
+    --install-paths "bun-linux-{arch}/bun"\
+    --install-to "/usr/local/bin/"\
+    --verify "bun --version | grep -qF '{version}'" &&\
+    ln -s /usr/local/bin/bun /usr/local/bin/node
+
+RUN bun add -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}" &&\
+    ln -s /bun/bin/pi /usr/local/bin/ &&\
+    pi --version | grep -qF "${PI_VERSION}"
+
+FROM base AS claude
+ARG TARGETPLATFORM TARGETARCH CLAUDE_VERSION
+
+# Wolfi is glibc-based, like Debian, so no missing-symbol shim is needed here
+# the way it is on Alpine's musl (see docker/agent/Dockerfile.alpine).
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${CLAUDE_VERSION}"\
+    --var "bucket=claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/linux-{arch}/claude"\
+    --checksum-url "https://storage.googleapis.com/{bucket}/claude-code-releases/{version}/manifest.json"\
+    --checksum-jq '.platforms["linux-{arch}"] | (.checksum + " " + .binary)'\
+    --install-to "/usr/local/bin/"\
+    --verify 'claude --version | grep -qF "{version}"'
+
+FROM base AS opencode
+ARG TARGETPLATFORM TARGETARCH OPENCODE_VERSION
+
+# opencode checksums come from the GitHub releases-by-tag API: each asset carries
+# a `digest` ("sha256:...") field, which --checksum-jq rewrites into a
+# "<sha256>  <name>" line so the standard verification path is unchanged.
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${OPENCODE_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/anomalyco/opencode/releases/download/v{version}/opencode-linux-{arch}.tar.gz"\
+    --checksum-url "https://api.github.com/repos/anomalyco/opencode/releases/tags/v{version}"\
+    --checksum-jq '.assets[] | select(.name == "opencode-linux-{arch}.tar.gz") | (.digest | sub("sha256:"; "")) + "  " + .name'\
+    --install-paths "opencode"\
+    --install-to "/usr/local/bin/"\
+    --verify 'opencode --version | grep -qF "{version}"'
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM base
+USER root
+
+ENV BUN_INSTALL=/bun
+ENV PATH="/bun/bin:${PATH}"
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+COPY --from=bun --chown=nonroot:nonroot /bun/install/global /bun/install/global
+COPY --from=bun --chown=nonroot:nonroot /bun/bin /bun/bin
+RUN ln -s /usr/local/bin/bun /usr/local/bin/node
+
+COPY --from=claude /usr/local/bin/claude /usr/local/bin/
+
+COPY --from=opencode /usr/local/bin/opencode /usr/local/bin/
+
+WORKDIR /app
