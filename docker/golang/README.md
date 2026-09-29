@@ -8,8 +8,9 @@ Go development images with the full toolchain plus a curated set of CI/dev tools
 |---------|-----|----------|
 | Alpine | `golang:alpine` | our [base](../base/README.md) (Alpine) + `golang:<golang_version>-alpine<alpine_version>` |
 | Debian | `golang:debian` | our [base](../base/README.md) (Debian) + `golang:<golang_version>-<debian_release>` |
+| Wolfi | `golang:wolfi` | our [base](../base/README.md) (Wolfi) + Go downloaded from go.dev (no official `golang:*-wolfi` image exists) |
 
-Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`GOLANG_VERSION`, `ALPINE_VERSION`, `DEBIAN_RELEASE`). Both variants ship the same Go toolchain, tools, and environment - only the underlying distro differs.
+Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`GOLANG_VERSION`, `ALPINE_VERSION`, `DEBIAN_RELEASE`). All three variants ship the same Go toolchain, tools, and environment - only the underlying distro differs.
 
 ## Tags
 
@@ -37,22 +38,31 @@ Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`GOLANG
 | `golang:<major>.<minor>-debian` | Minor Go alias on Debian |
 | `golang:<version>-debian` | Exact Go version on Debian |
 
+### Wolfi tags
+
+| Tag | Description |
+|-----|-------------|
+| `golang:wolfi` | Most recent Go on Wolfi |
+| `golang:<major>-wolfi` | Major Go alias on Wolfi |
+| `golang:<major>.<minor>-wolfi` | Minor Go alias on Wolfi |
+| `golang:<version>-wolfi` | Exact Go version on Wolfi |
+
 ## What is included
 
 ### Go toolchain
 
-The Go toolchain is copied from the official `golang` image into `/usr/local/go`. Only the toolchain is copied - the GOPATH and module cache are not pre-populated.
+On Alpine and Debian, the toolchain is copied from the official `golang` image into `/usr/local/go`. No official `golang:*-wolfi` image exists (upstream only publishes bookworm/bullseye/alpine variants), so on Wolfi, Go is downloaded directly from go.dev instead, with its checksum verified against go.dev's own JSON release API via `download.sh`. On all three variants, only the toolchain is copied or installed; the GOPATH and module cache are not pre-populated.
 
 ### Tools
 
-| Tool | Binary | Alpine | Debian | Source |
-|------|--------|--------|--------|--------|
-| [Delve](https://github.com/go-delve/delve) | `dlv` | ✅ | ✅ | `go install`, `DELVE_VERSION` |
-| [go-arch-lint](https://github.com/fe3dback/go-arch-lint) | `go-arch-lint` | ✅ | ✅ | GitHub release, `GOARCHLINT_VERSION` |
-| [golangci-lint](https://github.com/golangci/golangci-lint) | `golangci-lint` | ✅ | ✅ | GitHub release, `GOLANGCILINT_VERSION` |
-| [gotestsum](https://github.com/gotestyourself/gotestsum) | `gotestsum` | ✅ | ✅ | GitHub release, `GOTESTSUM_VERSION` |
+| Tool | Binary | Alpine | Debian | Wolfi | Source |
+|------|--------|--------|--------|-------|--------|
+| [Delve](https://github.com/go-delve/delve) | `dlv` | ✅ | ✅ | ✅ | `go install`, `DELVE_VERSION` |
+| [go-arch-lint](https://github.com/fe3dback/go-arch-lint) | `go-arch-lint` | ✅ | ✅ | ✅ | GitHub release, `GOARCHLINT_VERSION` |
+| [golangci-lint](https://github.com/golangci/golangci-lint) | `golangci-lint` | ✅ | ✅ | ✅ | GitHub release, `GOLANGCILINT_VERSION` |
+| [gotestsum](https://github.com/gotestyourself/gotestsum) | `gotestsum` | ✅ | ✅ | ✅ | GitHub release, `GOTESTSUM_VERSION` |
 
-All tools are present in both Alpine and Debian variants and support `linux/amd64` and `linux/arm64`.
+All tools are present in all three variants and support `linux/amd64` and `linux/arm64`.
 
 ### Environment
 
@@ -65,7 +75,7 @@ All tools are present in both Alpine and Debian variants and support `linux/amd6
 | `GOPROXY` | `https://go.pyck.cloud,direct` | Internal Go module proxy with fallback to direct |
 | `CGO_ENABLED` | `0` | Statically-linked builds by default; set to `1` explicitly for cgo |
 
-The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md); Alpine and Wolfi do not set it.
 
 ### Default user
 
@@ -103,7 +113,8 @@ docker run --rm \
 ## Build
 
 ```sh
-task build -- golang          # build both alpine and debian variants
+task build -- golang          # build all three variants
 task build -- golang-alpine   # alpine only
 task build -- golang-debian   # debian only
+task build -- golang-wolfi    # wolfi only
 ```

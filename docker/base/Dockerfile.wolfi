@@ -1,0 +1,213 @@
+# syntax=docker/dockerfile:1
+
+#===============================================================================
+# BASE
+#===============================================================================
+
+# Wolfi has no dated/semver release tags on its free tier (`cgr.dev/chainguard/
+# wolfi-base` publishes only `:latest`, verified against the registry directly),
+# so unlike ALPINE_VERSION/DEBIAN_RELEASE there is no version string to pin:
+# only an immutable digest, tracked by Renovate's docker-digest datasource.
+ARG WOLFI_BASE_DIGEST
+
+FROM cgr.dev/chainguard/wolfi-base@${WOLFI_BASE_DIGEST} AS base
+
+ARG TARGETARCH
+
+# wolfi-base's own /etc/apk/repositories points at apk.cgr.dev, Chainguard's
+# own proxy in front of the identical package set (confirmed: same APKINDEX),
+# but that proxy is severely rate-limited for unauthenticated pulls (~5.5s
+# per package installed, measured directly). packages.wolfi.dev is the same
+# packages via Wolfi's own free, unauthenticated CDN, with no such throttle.
+RUN sed -i 's#https://apk.cgr.dev/chainguard#https://packages.wolfi.dev/os#' /etc/apk/repositories
+
+# glibc-based (unlike Alpine's musl), apk-based (unlike Debian's apt); see
+# docker/base/README.md for why this variant exists alongside alpine/debian.
+# `shadow` (useradd/groupadd) isn't present in wolfi-base by default, unlike
+# Alpine where busybox already provides adduser/addgroup.
+RUN --mount=type=cache,id=apk-cache,target=/var/cache/apk/,sharing=locked\
+    apk add --update --no-progress\
+        age\
+        bash\
+        bind-tools\
+        build-base\
+        ca-certificates\
+        coreutils\
+        curl\
+        fd\
+        file\
+        gawk\
+        gcc\
+        gettext-envsubst\
+        git\
+        gnupg\
+        gpg\
+        gnutar\
+        iputils\
+        jq\
+        linux-headers\
+        make\
+        netcat-openbsd\
+        openssh-client\
+        openssl\
+        patch\
+        postgresql-17-client\
+        rclone\
+        ripgrep\
+        rsync\
+        shadow\
+        sops\
+        sqlite\
+        tzdata\
+        unzip\
+        wget\
+        xz\
+        zip\
+        zstd
+
+RUN ln -fs /usr/share/zoneinfo/UTC /etc/localtime
+
+RUN update-ca-certificates
+
+COPY download.sh /usr/local/sbin/download.sh
+
+# uid/gid 1001 is load-bearing, not arbitrary: it matches the uid our GitHub
+# Actions runners execute as (pyck-ai/deployment Dockerfile.runner), so a
+# bind-mounted job workspace stays writable and git does not reject it as
+# dubiously owned when an image runs as nonroot. wolfi-base already ships its
+# own "nonroot" account (the Chainguard/distroless convention) at uid/gid
+# 65532 with the right home dir (/home/nonroot) and shell already set up;
+# renumbered in place to 1001 rather than creating a second, differently
+# named account (useradd fails outright on the name collision; a differently
+# named second account would also break the "-o nonroot -g nonroot"
+# convention every other Dockerfile in this repo already relies on).
+RUN groupmod -g 1001 nonroot &&\
+    usermod -u 1001 -g nonroot nonroot &&\
+    chown -R nonroot:nonroot /home/nonroot
+
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+FROM base AS taskfile
+ARG TARGETPLATFORM TARGETARCH TASKFILE_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${TASKFILE_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/go-task/task/releases/download/v{version}/task_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/go-task/task/releases/download/v{version}/task_checksums.txt"\
+    --install-paths "task"\
+    --install-to "/usr/local/bin/"\
+    --verify "task --version | grep -qF '{version}'"
+
+FROM base AS flyctl
+ARG TARGETPLATFORM TARGETARCH FLYCTL_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${FLYCTL_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_Linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/superfly/flyctl/releases/download/v{version}/flyctl_{version}_checksums.txt"\
+    --install-paths "flyctl"\
+    --install-to "/usr/local/bin/"\
+    --verify "flyctl --version | grep -qF 'version {version}'"
+
+FROM base AS ghcli
+ARG TARGETPLATFORM TARGETARCH GHCLI_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GHCLI_VERSION}"\
+    --url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/cli/cli/releases/download/v{version}/gh_{version}_checksums.txt"\
+    --install-paths "gh_{version}_linux_{arch}/bin/gh"\
+    --install-to "/usr/local/bin/"\
+    --verify "gh --version | grep -qF 'version {version}'"
+
+FROM base AS helm
+ARG TARGETPLATFORM TARGETARCH HELM_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${HELM_VERSION}"\
+    --url "https://get.helm.sh/helm-v{version}-linux-{arch}.tar.gz"\
+    --checksum-url "https://get.helm.sh/helm-v{version}-linux-{arch}.tar.gz.sha256sum"\
+    --install-paths "linux-{arch}/helm"\
+    --install-to "/usr/local/bin/"\
+    --verify "helm version | grep -qF 'Version:\"v{version}\"'"
+
+FROM base AS kubectl
+ARG TARGETPLATFORM TARGETARCH KUBECTL_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${KUBECTL_VERSION}"\
+    --url "https://dl.k8s.io/release/v{version}/bin/linux/{arch}/kubectl"\
+    --checksum-url "https://dl.k8s.io/release/v{version}/bin/linux/{arch}/kubectl.sha256"\
+    --install-to "/usr/local/bin/"\
+    --verify "kubectl version --client=true | grep -qF 'Client Version: v{version}'"
+
+FROM base AS kustomize
+ARG TARGETPLATFORM TARGETARCH KUSTOMIZE_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${KUSTOMIZE_VERSION}"\
+    --url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/kustomize_v{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv{version}/checksums.txt"\
+    --install-paths "kustomize"\
+    --install-to "/usr/local/bin/"\
+    --verify "kustomize version | grep -qF 'v{version}'"
+
+# sops is a native Wolfi package (unlike Alpine/Debian, where it's a
+# download.sh binary release), so no download stage is needed for it here.
+
+FROM base AS shellcheck
+ARG TARGETPLATFORM TARGETARCH SHELLCHECK_VERSION
+# Not packaged in Wolfi (needs Haskell GHC/Cabal, which Wolfi doesn't carry;
+# confirmed against wolfi-dev/os#49222 and #58362), the only tool in this
+# image's set that isn't a plain apk install, on any of the three variants.
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${SHELLCHECK_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.linux.{arch}.tar.xz"\
+    --checksum-url "https://api.github.com/repos/koalaman/shellcheck/releases/tags/v{version}"\
+    --checksum-jq '.assets[] | select(.name == "shellcheck-v{version}.linux.{arch}.tar.xz") | (.digest | sub("sha256:"; "")) + "  " + .name'\
+    --install-paths "shellcheck-v{version}/shellcheck"\
+    --install-to "/usr/local/bin/"\
+    --verify "shellcheck --version | grep -qF 'version: {version}'"
+
+FROM base AS watchexec
+ARG TARGETPLATFORM TARGETARCH WATCHEXEC_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${WATCHEXEC_VERSION}"\
+    --platform-arch "linux/amd64=x86_64"\
+    --platform-arch "linux/arm64=aarch64"\
+    --url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-linux-gnu.tar.xz"\
+    --checksum-url "https://github.com/watchexec/watchexec/releases/download/v{version}/watchexec-{version}-{arch}-unknown-linux-gnu.tar.xz.sha256"\
+    --install-paths "watchexec-{version}-{arch}-unknown-linux-gnu/watchexec"\
+    --install-to "/usr/local/bin/"\
+    --verify "watchexec --version | grep -qF 'watchexec {version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
+FROM base
+USER root
+
+COPY --from=taskfile /usr/local/bin/task /usr/local/bin/
+COPY --from=flyctl /usr/local/bin/flyctl /usr/local/bin/
+COPY --from=ghcli /usr/local/bin/gh /usr/local/bin/
+COPY --from=helm /usr/local/bin/helm /usr/local/bin/
+COPY --from=kubectl /usr/local/bin/kubectl /usr/local/bin/
+COPY --from=kustomize /usr/local/bin/kustomize /usr/local/bin/
+COPY --from=shellcheck /usr/local/bin/shellcheck /usr/local/bin/
+COPY --from=watchexec /usr/local/bin/watchexec /usr/local/bin/
+
+RUN git config --system --add safe.directory "*"
+
+RUN install -d -o nonroot -g nonroot /app
+WORKDIR /app

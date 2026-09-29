@@ -15,6 +15,8 @@ variable "REGISTRY" {}
 variable "GOLANG_VERSION" {}
 variable "ALPINE_VERSION" {}
 variable "DEBIAN_RELEASE" {}
+variable "WOLFI_BASE_DIGEST" {}
+variable "SHELLCHECK_VERSION" {}
 variable "NGINX_VERSION" {}
 variable "CLAUDE_VERSION" {}
 variable "OPENCODE_VERSION" {}
@@ -93,6 +95,7 @@ group "agent" {
   targets = [
     "agent-alpine",
     "agent-debian",
+    "agent-wolfi",
   ]
 }
 
@@ -133,6 +136,23 @@ target "agent-debian" {
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-debian,mode=max"]
 }
 
+target "agent-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/agent"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base" = "target:base-wolfi"
+  }
+  tags = concat(
+    ["${REGISTRY}/agent:wolfi"],
+    vtags(REGISTRY, "agent", CLAUDE_VERSION,   "claude-",   "-wolfi"),
+    vtags(REGISTRY, "agent", OPENCODE_VERSION, "opencode-", "-wolfi"),
+    vtags(REGISTRY, "agent", PI_VERSION,       "pi-",       "-wolfi"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:agent-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:agent-wolfi,mode=max"]
+}
+
 
 # ==============================================================================
 # BASE
@@ -142,6 +162,7 @@ group "base" {
   targets = [
     "base-alpine",
     "base-debian",
+    "base-wolfi",
   ]
 }
 
@@ -169,6 +190,17 @@ target "base-debian" {
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:debian,mode=max"]
 }
 
+target "base-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/base"
+  dockerfile = "Dockerfile.wolfi"
+  tags = [
+    "${REGISTRY}/base:wolfi",
+  ]
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:wolfi,mode=max"]
+}
+
 # ==============================================================================
 # GOLANG
 # ==============================================================================
@@ -177,6 +209,7 @@ group "golang" {
   targets = [
     "golang-alpine",
     "golang-debian",
+    "golang-wolfi",
   ]
 }
 
@@ -209,6 +242,21 @@ target "golang-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:golang-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:golang-debian,mode=max"]
+}
+
+target "golang-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/golang"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base" = "target:base-wolfi"
+  }
+  tags = concat(
+    ["${REGISTRY}/golang:wolfi"],
+    vtags(REGISTRY, "golang", GOLANG_VERSION, "", "-wolfi"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:golang-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:golang-wolfi,mode=max"]
 }
 
 # ==============================================================================
@@ -273,6 +321,7 @@ group "python" {
   targets = [
     "python-alpine",
     "python-debian",
+    "python-wolfi",
   ]
 }
 
@@ -307,6 +356,21 @@ target "python-debian" {
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:python-debian,mode=max"]
 }
 
+target "python-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/python"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base" = "target:base-wolfi"
+  }
+  tags = concat(
+    ["${REGISTRY}/python:wolfi"],
+    vtags(REGISTRY, "python", PYTHON_VERSION, "", "-wolfi"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:python-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:python-wolfi,mode=max"]
+}
+
 # ==============================================================================
 # ROVER
 # ==============================================================================
@@ -314,6 +378,7 @@ target "python-debian" {
 group "rover" {
   targets = [
     "rover-debian",
+    "rover-wolfi",
   ]
 }
 
@@ -330,6 +395,21 @@ target "rover-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:rover-debian,mode=max"]
+}
+
+target "rover-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/rover"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base" = "target:base-wolfi"
+  }
+  tags = concat(
+    ["${REGISTRY}/rover:wolfi"],
+    vtags(REGISTRY, "rover", ROVER_VERSION, "", "-wolfi"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:rover-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:rover-wolfi,mode=max"]
 }
 
 # ==============================================================================
@@ -358,6 +438,7 @@ group "typescript" {
   targets = [
     "typescript-alpine",
     "typescript-debian",
+    "typescript-wolfi",
   ]
 }
 
@@ -395,6 +476,21 @@ target "typescript-debian" {
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-debian,mode=max"]
 }
 
+target "typescript-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/typescript"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base" = "target:base-wolfi"
+  }
+  tags = concat(
+    ["${REGISTRY}/typescript:wolfi"],
+    vtags(REGISTRY, "typescript", BUN_VERSION, "", "-wolfi"),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:typescript-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:typescript-wolfi,mode=max"]
+}
+
 # ==============================================================================
 # VALKEY
 # ==============================================================================
@@ -421,6 +517,7 @@ group "all-in-one" {
   targets = [
     "all-in-one-alpine",
     "all-in-one-debian",
+    "all-in-one-wolfi",
   ]
 }
 
@@ -467,4 +564,27 @@ target "all-in-one-debian" {
   )
   cache-from = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian"]
   cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-debian,mode=max"]
+}
+
+target "all-in-one-wolfi" {
+  inherits = ["_common"]
+  context = "./docker/all-in-one"
+  dockerfile = "Dockerfile.wolfi"
+  contexts = {
+    "base"       = "target:base-wolfi"
+    "golang"     = "target:golang-wolfi"
+    "typescript" = "target:typescript-wolfi"
+    "agent"      = "target:agent-wolfi"
+    "rover"      = "target:rover-wolfi"
+    "python"     = "target:python-wolfi"
+  }
+  tags = concat(
+    [
+      "${REGISTRY}/all-in-one:wolfi",
+    ],
+    all_in_one_tags(REGISTRY, "wolfi"),
+    vtags(REGISTRY, "all-in-one", ROVER_VERSION,  "wolfi-rover-",  ""),
+  )
+  cache-from = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-wolfi"]
+  cache-to   = ["type=registry,ref=${REGISTRY}/buildcache:all-in-one-wolfi,mode=max"]
 }

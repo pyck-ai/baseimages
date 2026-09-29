@@ -13,7 +13,7 @@ Hardened, multi-arch Docker base images for the pyck.ai platform. All images are
 
 The images fall into a few kinds:
 
-- **Base** — a hardened Alpine + Debian foundation with common tooling. Other images may build on it, but single-purpose images are not required to.
+- **Base**: a hardened Alpine + Debian + Wolfi foundation with common tooling. Other images may build on it, but single-purpose images are not required to.
 - **Developer tooling** — single-purpose language toolchains, package managers, and coding-agent CLIs. Each targets one kind of project, and all are bundled into `all-in-one`.
 - **All-in-one** — the full developer-tooling set in one image, for local development where juggling many images isn't worth it. Not intended for CI (size and attack surface).
 - **Runtime & deployment** — single-purpose images that run or serve an application rather than build one. Consumed standalone and intentionally excluded from `all-in-one`.
@@ -24,7 +24,7 @@ Default `USER` follows the image's role:
 
 | Role | Images | Default user | Nonroot escape hatch |
 |------|--------|---------------|-----------------------|
-| Build substrate / developer tooling | `base`, `golang`, `python`, `typescript`, `rover`, `agent`, `all-in-one` | `root` (uid 0) | `--user 1001` drops to the `nonroot` account; each image's tool dirs are nonroot-owned |
+| Build substrate / developer tooling | `base`, `golang`, `python`, `typescript`, `rover`, `agent`, `all-in-one` (alpine, debian, and wolfi variants; rover has no alpine variant) | `root` (uid 0) | `--user 1001` drops to the `nonroot` account; each image's tool dirs are nonroot-owned |
 | Runtime / deployment | `nginx` (101), `static` (1001), `postgresql` (1001), `valkey` (1001), `nats` (1001) | nonroot | `--user 0` elevates to root, e.g. to install packages or use the image as a build environment |
 
 Build-substrate images default to root so they work as GitHub Actions job containers: GHA runs steps as the image's `USER`, and steps routinely install packages (apt/apk) and write outside the workspace — the same reason the official `golang`/`python` images default to root. The `nonroot` account is uid/gid **1001** to match the uid our runners execute as ([`deployment/Dockerfile.runner`](https://github.com/pyck-ai/deployment/blob/main/Dockerfile.runner)), so the bind-mounted workspace stays writable and `actions/checkout` (git "dubious ownership"), `$GITHUB_ENV` and `$GITHUB_OUTPUT` keep working whenever an image does run as nonroot. Runtime images keep nonroot for deployment security. `WORKDIR` is `/app` for the images that use it; see each image's README for exceptions (`static` uses `/home/nonroot`).
@@ -44,7 +44,7 @@ Single-purpose tooling images, all bundled into `all-in-one`.
 | [`agent`](docker/agent/README.md) | Claude Code + opencode + pi coding-agent CLIs |
 | [`golang`](docker/golang/README.md) | Go toolchain + CI tools (delve, golangci-lint, gotestsum, go-arch-lint) |
 | [`python`](docker/python/README.md) | Python runtime with uv + Ruff |
-| [`rover`](docker/rover/README.md) | Apollo Rover CLI for schema registry and supergraph operations (Debian only) |
+| [`rover`](docker/rover/README.md) | Apollo Rover CLI for schema registry and supergraph operations (Debian and Wolfi only; Rover ships no musl build, so no Alpine variant) |
 | [`typescript`](docker/typescript/README.md) | TypeScript/JS runtime powered by Bun |
 
 ### All-in-one
@@ -88,11 +88,12 @@ task build
 
 ```sh
 task build -- static            # scratch/static image
-task build -- base              # alpine + debian base images
+task build -- base              # alpine + debian + wolfi base images
 task build -- base-alpine       # alpine base only
-task build -- golang            # both golang variants
+task build -- golang            # all golang variants (alpine, debian, wolfi)
 task build -- golang-debian     # Go debian only
-task build -- all-in-one        # all-in-one image (both variants)
+task build -- golang-wolfi      # Go wolfi only
+task build -- all-in-one        # all-in-one image (all three variants)
 ```
 
 ### Build a specific arch only
@@ -129,6 +130,7 @@ The arrows show current build dependencies. Building on `base` is optional by de
 graph LR
   base-alpine["base:alpine"]
   base-debian["base:debian"]
+  base-wolfi["base:wolfi"]
   nginx-base["nginxinc/nginx-unprivileged"]
 
   base-alpine --> static
@@ -141,7 +143,13 @@ graph LR
   base-debian --> agent-debian["agent:debian"]
   base-debian --> typescript-debian["typescript:debian"]
   base-debian --> python-debian["python:debian"]
-  base-debian --> rover
+  base-debian --> rover-debian["rover:debian"]
+
+  base-wolfi --> golang-wolfi["golang:wolfi"]
+  base-wolfi --> agent-wolfi["agent:wolfi"]
+  base-wolfi --> typescript-wolfi["typescript:wolfi"]
+  base-wolfi --> python-wolfi["python:wolfi"]
+  base-wolfi --> rover-wolfi["rover:wolfi"]
 
   base-alpine --> aio-alpine["all-in-one:alpine"]
   golang-alpine --> aio-alpine
@@ -153,8 +161,15 @@ graph LR
   golang-debian --> aio-debian
   agent-debian --> aio-debian
   typescript-debian --> aio-debian
-  rover --> aio-debian
+  rover-debian --> aio-debian
   python-debian --> aio-debian
+
+  base-wolfi --> aio-wolfi["all-in-one:wolfi"]
+  golang-wolfi --> aio-wolfi
+  agent-wolfi --> aio-wolfi
+  typescript-wolfi --> aio-wolfi
+  rover-wolfi --> aio-wolfi
+  python-wolfi --> aio-wolfi
 
   nginx-base --> nginx
   static --> postgresql

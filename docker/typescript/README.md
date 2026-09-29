@@ -8,6 +8,7 @@ TypeScript/JavaScript runtime images powered by [Bun](https://bun.sh). Bun is us
 |---------|-----|----------|
 | Alpine | `typescript:alpine` | our [base](../base/README.md) (Alpine) + musl-compatible Bun build |
 | Debian | `typescript:debian` | our [base](../base/README.md) (Debian) + standard glibc Bun build |
+| Wolfi | `typescript:wolfi` | our [base](../base/README.md) (Wolfi) + standard glibc Bun build |
 
 Current version is pinned in [`buildargs.conf`](../../buildargs.conf) (`BUN_VERSION`).
 
@@ -35,13 +36,22 @@ Current version is pinned in [`buildargs.conf`](../../buildargs.conf) (`BUN_VERS
 | `typescript:<major>.<minor>-debian` | Minor alias on Debian |
 | `typescript:<version>-debian` | Exact pinned version on Debian |
 
+### Wolfi tags
+
+| Tag | Description |
+|-----|-------------|
+| `typescript:wolfi` | Most recent Bun on Wolfi |
+| `typescript:<major>-wolfi` | Major alias on Wolfi |
+| `typescript:<major>.<minor>-wolfi` | Minor alias on Wolfi |
+| `typescript:<version>-wolfi` | Exact pinned version on Wolfi |
+
 ## What is included
 
 ### Tools
 
-| Tool | Binary | Alpine | Debian | Source |
-|------|--------|--------|--------|--------|
-| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | GitHub release, `BUN_VERSION` |
+| Tool | Binary | Alpine | Debian | Wolfi | Source |
+|------|--------|--------|--------|-------|--------|
+| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | ✅ | GitHub release, `BUN_VERSION` |
 
 Bun runs TypeScript, JavaScript, JSX, and TSX files directly. This image does not create a `node` symlink to `bun` (the `agent` and `all-in-one` images do).
 
@@ -52,7 +62,7 @@ Bun runs TypeScript, JavaScript, JSX, and TSX files directly. This image does no
 | `BUN_INSTALL` | `/bun` | Bun global install prefix; `bun install -g` puts binaries here |
 | `PATH` | prepends `/bun/bin` | Global Bun-installed binaries on PATH |
 
-The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md); Alpine and Wolfi do not set it.
 
 ### Default user
 
@@ -102,7 +112,8 @@ docker run --rm \
 ## Build
 
 ```sh
-task build -- typescript          # build both alpine and debian variants
+task build -- typescript          # build all three variants
 task build -- typescript-alpine   # alpine only
 task build -- typescript-debian   # debian only
+task build -- typescript-wolfi    # wolfi only
 ```

@@ -4,7 +4,7 @@ Apollo GraphQL tooling image providing the [Rover CLI](https://www.apollographql
 
 ## Based on
 
-Our [debian base](../base/README.md): `base:debian`. Rover only publishes glibc binaries, so no Alpine variant is provided.
+Our [debian base](../base/README.md) (`base:debian`) or [wolfi base](../base/README.md) (`base:wolfi`): Rover only publishes glibc binaries, so no Alpine variant is provided. Wolfi is glibc-based too (unlike Alpine's musl), which is what makes a Wolfi variant possible here at all.
 
 Current version is defined in [`buildargs.conf`](../../buildargs.conf) (`ROVER_VERSION`).
 
@@ -12,10 +12,14 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf) (`ROVER_V
 
 | Tag | Description |
 |-----|-------------|
-| `rover:latest` | Most recent Rover version |
-| `rover:<major>` | Major-version alias |
-| `rover:<major.minor>` | Minor-version alias |
-| `rover:<version>` | Exact pinned version |
+| `rover:latest` | Most recent Rover version (Debian) |
+| `rover:wolfi` | Most recent Rover version (Wolfi) |
+| `rover:<major>` | Major-version alias (Debian) |
+| `rover:<major.minor>` | Minor-version alias (Debian) |
+| `rover:<version>` | Exact pinned version (Debian) |
+| `rover:<major>-wolfi` | Major-version alias (Wolfi) |
+| `rover:<major.minor>-wolfi` | Minor-version alias (Wolfi) |
+| `rover:<version>-wolfi` | Exact pinned version (Wolfi) |
 
 ## What is included
 
@@ -23,9 +27,9 @@ Current version is defined in [`buildargs.conf`](../../buildargs.conf) (`ROVER_V
 
 | Tool | Binary | Source |
 |------|--------|--------|
-| [Rover](https://www.apollographql.com/docs/rover/) | `rover` | GitHub release, `ROVER_VERSION`, checksum-verified via `download.sh` |
+| [Rover](https://www.apollographql.com/docs/rover/) | `rover` | GitHub release, `ROVER_VERSION`, checksum-verified via `download.sh`, identical on both variants |
 
-Supports `linux/amd64` and `linux/arm64`. Installs no packages and sets no environment variables of its own beyond the [base image](../base/README.md).
+Supports `linux/amd64` and `linux/arm64`. Installs no packages and sets no environment variables of its own beyond the base image.
 
 ### Default user
 
@@ -50,5 +54,7 @@ docker run --rm --user 1001 ghcr.io/pyck-ai/baseimages/rover:latest rover --vers
 ## Build
 
 ```sh
-task build -- rover
+task build -- rover          # build both debian and wolfi
+task build -- rover-debian   # debian only
+task build -- rover-wolfi    # wolfi only
 ```

@@ -8,8 +8,9 @@ Python development images with [uv](https://github.com/astral-sh/uv) for package
 |---------|-----|----------|
 | Alpine | `python:alpine` | our [base](../base/README.md) (Alpine) + musl-managed CPython |
 | Debian | `python:debian` | our [base](../base/README.md) (Debian) + glibc-managed CPython |
+| Wolfi | `python:wolfi` | our [base](../base/README.md) (Wolfi) + glibc-managed CPython |
 
-Both variants install the same uv-managed CPython via [python-build-standalone](https://github.com/astral-sh/python-build-standalone); the Alpine variant uses a musl build, the Debian variant a glibc build.
+All three variants install the same uv-managed CPython via [python-build-standalone](https://github.com/astral-sh/python-build-standalone); the Alpine variant uses a musl build, the Debian and Wolfi variants a glibc build.
 
 Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`PYTHON_VERSION`, `UV_VERSION`, `RUFF_VERSION`).
 
@@ -34,6 +35,14 @@ Current versions are pinned in [`buildargs.conf`](../../buildargs.conf) (`PYTHON
 | `python:<major>-debian` | Major-version alias |
 | `python:<major>.<minor>-debian` | Minor-version alias |
 
+### Wolfi tags
+
+| Tag | Description |
+|-----|-------------|
+| `python:wolfi` | Most recent build (Wolfi) |
+| `python:<major>-wolfi` | Major-version alias |
+| `python:<major>.<minor>-wolfi` | Minor-version alias |
+
 ## What is included
 
 ### Python
@@ -42,25 +51,25 @@ Python is installed via `uv python install` using [python-build-standalone](http
 
 The following binaries are symlinked into `/usr/local/bin`:
 
-| Binary | Alpine | Debian | Description |
-|--------|--------|--------|-------------|
-| `python<major>.<minor>` | ✅ | ✅ | Versioned Python interpreter |
-| `python3` | ✅ | ✅ | Alias for the versioned interpreter |
-| `python` | ✅ | ✅ | Alias for `python3` |
-| `pip<major>.<minor>` | ✅ | ✅ | Versioned pip |
-| `pip3` | ✅ | ✅ | Alias for the versioned pip |
-| `pip` | ✅ | ✅ | Alias for `pip3` |
-| `pydoc<major>.<minor>` | ✅ | ✅ | Versioned pydoc |
-| `pydoc3` | ✅ | ✅ | Alias for the versioned pydoc |
-| `pydoc` | ✅ | ✅ | Alias for `pydoc3` |
+| Binary | Alpine | Debian | Wolfi | Description |
+|--------|--------|--------|-------|-------------|
+| `python<major>.<minor>` | ✅ | ✅ | ✅ | Versioned Python interpreter |
+| `python3` | ✅ | ✅ | ✅ | Alias for the versioned interpreter |
+| `python` | ✅ | ✅ | ✅ | Alias for `python3` |
+| `pip<major>.<minor>` | ✅ | ✅ | ✅ | Versioned pip |
+| `pip3` | ✅ | ✅ | ✅ | Alias for the versioned pip |
+| `pip` | ✅ | ✅ | ✅ | Alias for `pip3` |
+| `pydoc<major>.<minor>` | ✅ | ✅ | ✅ | Versioned pydoc |
+| `pydoc3` | ✅ | ✅ | ✅ | Alias for the versioned pydoc |
+| `pydoc` | ✅ | ✅ | ✅ | Alias for `pydoc3` |
 
 ### Tools
 
-| Tool | Binary | Alpine | Debian | Source |
-|------|--------|--------|--------|--------|
-| [uv](https://github.com/astral-sh/uv) | `uv` | ✅ | ✅ | GitHub release, `UV_VERSION` |
-| [uv](https://github.com/astral-sh/uv) | `uvx` | ✅ | ✅ | symlink to `uv` (`uv tool run`) |
-| [Ruff](https://github.com/astral-sh/ruff) | `ruff` | ✅ | ✅ | GitHub release, `RUFF_VERSION` |
+| Tool | Binary | Alpine | Debian | Wolfi | Source |
+|------|--------|--------|--------|-------|--------|
+| [uv](https://github.com/astral-sh/uv) | `uv` | ✅ | ✅ | ✅ | GitHub release, `UV_VERSION` |
+| [uv](https://github.com/astral-sh/uv) | `uvx` | ✅ | ✅ | ✅ | symlink to `uv` (`uv tool run`) |
+| [Ruff](https://github.com/astral-sh/ruff) | `ruff` | ✅ | ✅ | ✅ | GitHub release, `RUFF_VERSION` |
 
 ### Environment
 
@@ -71,7 +80,7 @@ The following binaries are symlinked into `/usr/local/bin`:
 | `PYTHONDONTWRITEBYTECODE` | `1` | Suppress `.pyc` file generation |
 | `PYTHONUNBUFFERED` | `1` | Force unbuffered stdout/stderr for clean container logs |
 
-The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md).
+The Debian variant also inherits `DEBIAN_FRONTEND` from [base](../base/README.md); Alpine and Wolfi do not set it.
 
 ### Default user
 
@@ -117,7 +126,8 @@ COPY . .
 ## Build
 
 ```sh
-task build -- python          # build both alpine and debian variants
+task build -- python          # build all three variants
 task build -- python-alpine   # alpine only
 task build -- python-debian   # debian only
+task build -- python-wolfi    # wolfi only
 ```
