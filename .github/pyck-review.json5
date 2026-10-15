@@ -1,7 +1,5 @@
-// This repo's own pyck-review rules. See
-// https://github.com/pyck-ai/pyck-review for what reads this file, and its
-// README for the rule schema and how a repo's own rules combine with a
-// preset's.
+// This repository's pyck-review settings. See pyck-ai/pyck-review
+// docs/configuration.md for what reads this file and what the presets set.
 {
-  extends: ["renovate-prs"],
+  extends: ["recommended"],
 }
