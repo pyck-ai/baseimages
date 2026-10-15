@@ -42,7 +42,7 @@ README files in this repository document what each Docker image contains. Keep t
 Each image directory ships a `verify.sh` (e.g. `docker/base/verify.sh`). CI runs it
 **inside** the image it just built:
 
-```
+```sh
 docker run --rm --env-file buildargs.conf -e TARGET=<bake target> \
   -v <dir>/verify.sh:/verify.sh:ro --entrypoint /bin/sh <image@digest> /verify.sh
 ```

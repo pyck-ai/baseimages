@@ -65,7 +65,6 @@ Single-purpose, consumed standalone, and intentionally excluded from `all-in-one
 | [`static`](docker/static/README.md) | Minimal scratch image for running static binaries |
 | [`valkey`](docker/valkey/README.md) | Hardened, scratch-based Valkey (Redis-protocol-compatible) for CI and local development |
 
-
 ## Versioning
 
 All tool and base image versions are pinned in [`buildargs.conf`](buildargs.conf) and kept up to date by [Renovate](https://docs.renovatebot.com/).
@@ -100,6 +99,15 @@ task build -- all-in-one        # all-in-one image (both variants)
 ```sh
 task build ARCH=amd64 -- base-alpine
 ```
+
+### Check the source without building
+
+```sh
+task ci    # Dockerfile checks over every target, shellcheck, markdownlint
+```
+
+The `ci` workflow runs the same command and ends in the `ci-success` gate; the
+image build workflow ends in `build-success`.
 
 ## Verifying
 

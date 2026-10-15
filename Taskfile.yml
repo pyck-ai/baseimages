@@ -16,6 +16,45 @@ dotenv:
   - buildargs.conf
 
 tasks:
+  ci:
+    desc: Run every source check (Dockerfile checks, shellcheck, markdownlint); builds no image
+    cmds:
+      - task: bake-check
+      - task: shellcheck
+      - task: markdownlint
+
+  bake-check:
+    desc: Run BuildKit's Dockerfile checks over every bake target (needs docker)
+    cmds:
+      # `bake --check` resolves every `target:` context from the build graph,
+      # which a check-only run has no output for. Point each at `scratch`
+      # instead: the check reads the Dockerfile, not the parent image. The
+      # platform and cache overrides keep it on the default (docker driver)
+      # builder, which supports neither multi-platform nor cache export.
+      - |
+        contexts=$(docker buildx bake --print | jq -r '
+          .target | to_entries[] | .key as $t
+          | (.value.contexts // {}) | to_entries[]
+          | select(.value | startswith("target:"))
+          | "--set \($t).contexts.\(.key)=docker-image://scratch"')
+        docker buildx bake --check \
+          --set '*.platform=linux/amd64' --set '*.cache-from=' --set '*.cache-to=' \
+          --var REGISTRY={{.REGISTRY | q}} {{._BAKE_BUILDARGS}} $contexts
+
+  shellcheck:
+    desc: Run shellcheck over the tracked shell scripts, from a container so CI and a laptop agree (needs docker)
+    cmds:
+      - git ls-files -z '*.sh' | xargs -0 docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:stable
+
+  markdownlint:
+    desc: Lint the tracked Markdown files (rules in .markdownlint-cli2.yaml)
+    cmds:
+      # In a container: the self-hosted runner has no node. The version is
+      # pinned because a linter's rules change with its version.
+      - |
+        git ls-files -z '*.md' | xargs -0 docker run --rm -v "$PWD:/repo:ro" --workdir /repo \
+          node:22-alpine npx --yes markdownlint-cli2@0.23.1
+
   setup:
     desc: "Create the 'pyck-baseimages' buildx builder (run once per machine)"
     cmds:

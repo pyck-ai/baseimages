@@ -1,0 +1,46 @@
+name: ci
+run-name: Check the source
+
+# The source checks that need no image build (Dockerfile checks over every bake
+# target, shellcheck, markdownlint), run through `task ci` so a laptop and CI
+# run the same thing. The image build itself is build.yml. See
+# pyck-ai/guidelines docs/ci.md.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, 'release/**']
+
+# Cancel superseded runs, but only for PRs: a push to main should always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    # `self-hosted`, not `self-hosted-kata`: `bake --check` and the shellcheck
+    # container need docker, which the kata pool does not have.
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.x
+          repo-token: ${{ github.token }}
+      - run: task ci
+
+  # The check the org ruleset requires. It lives in this file, not in a
+  # reusable workflow, so its name stays `ci-success`.
+  ci-success:
+    needs: [ci]
+    if: always()
+    permissions: {}
+    runs-on: self-hosted-kata
+    steps:
+      - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+        with:
+          needs: ${{ toJSON(needs) }}

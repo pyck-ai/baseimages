@@ -12,7 +12,8 @@
 set -euo pipefail
 
 # Configuration
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
 readonly VERSION="2.3"
 
 # Global variables
@@ -225,7 +226,6 @@ check_dependencies() {
 	done
 
 	# At least one checksum tool must be available
-	local available_checksum_tools=()
 	for cmd in sha512sum sha256sum sha1sum md5sum; do
 		if ! command -v "$cmd" >/dev/null 2>&1; then
 			missing+=("$cmd")
@@ -716,14 +716,14 @@ install_binaries() {
 			[[ "$item_name" == "." || "$item_name" == ".." ]] && continue
 
 			if [[ "$DRY_RUN" == true ]]; then
-				log "INFO" "[DRY RUN] Would install: ${match#$extract_dir/} -> $dest_dir/$item_name"
+				log "INFO" "[DRY RUN] Would install: ${match#"$extract_dir"/} -> $dest_dir/$item_name"
 				continue
 			fi
 
 			if [[ -d "$match" ]]; then
 				if [[ -e "$dest_dir/$item_name" ]]; then
 					log "WARN" "Already exists, overwriting: $dest_dir/$item_name"
-					rm -rf "$dest_dir/$item_name"
+					rm -rf "${dest_dir:?}/$item_name"
 				fi
 				if ! cp -r "$match" "$dest_dir/$item_name"; then
 					log "ERROR" "Failed to copy directory: $match -> $dest_dir/$item_name"
