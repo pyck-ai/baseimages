@@ -1,4 +1,4 @@
-name: build-image
+name: build
 run-name: Build and push Docker images
 
 # Publish on every push to main so merged changes go out immediately rather than
@@ -18,7 +18,7 @@ on:
   # (see the discover step and push:/cache-to handling below).
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
 
 # Cancel superseded runs, but only for PRs. `github.ref` is `refs/heads/main` for
 # both `push` and `schedule`, so those two share a concurrency group; cancelling a
@@ -40,11 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    # Pinned to pyck-ai/github-actions#34 (verify-image: retry with a busybox
-    # overlay when verify.sh fails, not just when the image has no shell at
-    # all) — needed for the postgresql image's verify.sh to pass CI. Merged
-    # to main via fast-forward, so this SHA is main's tip as of the merge.
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@6f2de33e625080c4542ca6e29610062b0afa9b82 # pyck-ai/github-actions#34, on main
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
@@ -58,3 +54,17 @@ jobs:
     # pulls across ~40-60 images would otherwise risk the 100-per-6h-per-IP
     # rate limit.
     secrets: inherit
+
+  # The one required check of this workflow (the repo ruleset requires
+  # `build-success`). It lives here, not in the shared workflow, because a
+  # job there would report as `build / <job>`. Skipped jobs pass, failed or
+  # cancelled ones fail. See pyck-ai/guidelines docs/ci.md.
+  build-success:
+    needs: [build]
+    if: always()
+    permissions: {}
+    runs-on: self-hosted-kata
+    steps:
+      - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+        with:
+          needs: ${{ toJSON(needs) }}

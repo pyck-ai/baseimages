@@ -26,19 +26,25 @@ tasks:
           --driver=docker-container 
 
   build:
-    desc: "Build base images using Docker Bake. Args: TARGET=alpine,debian ARCH=arm64"
-    vars:
+    desc: >-
+      Build base images with Docker Bake, pushing nothing. Args: TARGET="golang base-alpine"
+      (bake targets or groups, space-separated; default all), BUILDER=<buildx builder>,
+      ARCH=arm64 (local only). Extra bake flags go after --
     cmds:
+      # CI=true (the shared pipeline) adds none of the local-only flags: no host
+      # platform override and no cache clearing, because the pipeline's --set
+      # overrides after -- decide the platforms and the caching.
       - >-
         docker buildx bake
         --pull
-        --builder pyck-baseimages
+        --builder {{.BUILDER | default "pyck-baseimages"}}
         {{if not .CI}}--set {{ (printf "*.platform=linux/%s" (.ARCH | default ._HOST_ARCH)) | q}}{{end}}
         --set "*.args.REGISTRY"={{ .REGISTRY | q}}
-        --set "*.cache-from="
-        --set "*.cache-to="
+        {{if not .CI}}--set "*.cache-from="{{end}}
+        {{if not .CI}}--set "*.cache-to="{{end}}
         --var REGISTRY={{ .REGISTRY | q}}
         {{._BAKE_BUILDARGS}}
         {{if .CLI_VERBOSE}}--debug{{end}}
         {{.BAKE_EXTRA}}
+        {{.TARGET}}
         {{.CLI_ARGS}}
