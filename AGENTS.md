@@ -9,6 +9,8 @@ Images fall into a few kinds:
 - **`all-in-one`** — the complete developer-tooling set in one image, intended for local development, **not** for CI (size and attack surface).
 - **Runtime / deployment images** — `nginx` (web server) and `static` (scratch base for static binaries). These run or serve an application rather than build one; they are consumed standalone and are **intentionally excluded from `all-in-one`**. Do not wire them into it.
 
+The per-tool version tags of `all-in-one` (`<distro>-<tool>-<version>`, see its [README](docker/all-in-one/README.md#per-tool-version-tags)) exist so users can pin the image by the version of one tool they depend on. They are intended; never remove or collapse them.
+
 Whenever a developer-tooling image is added, removed, or renamed, adjust `all-in-one` to match — it must bundle every developer-tooling image, and only the runtime / deployment images above are exempt.
 
 ## Default user
