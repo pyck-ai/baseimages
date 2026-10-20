@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@2315aea999a4dc0d1643cdb635ea6308242e55df # main 2026-10-20
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
@@ -48,6 +48,8 @@ jobs:
       # Distinct per-repo builder name so concurrent builds on the same
       # self-hosted runner don't collide on a shared default builder.
       builder-name: baseimages
+      # The unprivileged kata pool; the build legs use its rootless BuildKit.
+      runs-on: self-hosted-kata
     # Needed for the GHCR token and for the optional DOCKERHUB_USERNAME /
     # DOCKERHUB_TOKEN: this repo's Dockerfiles pull FROM alpine:, debian:,
     # golang: and nginxinc/nginx-unprivileged from Docker Hub, and anonymous
@@ -65,6 +67,6 @@ jobs:
     permissions: {}
     runs-on: self-hosted-kata
     steps:
-      - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
+      - uses: pyck-ai/github-actions/gate@2315aea999a4dc0d1643cdb635ea6308242e55df # main 2026-10-20
         with:
           needs: ${{ toJSON(needs) }}
