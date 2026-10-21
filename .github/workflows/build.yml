@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@2315aea999a4dc0d1643cdb635ea6308242e55df # main 2026-10-20
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@5c7e27fd0a33a79314a433d00992a8d6e6e3264c # main 2026-10-21
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
@@ -67,6 +67,6 @@ jobs:
     permissions: {}
     runs-on: self-hosted-kata
     steps:
-      - uses: pyck-ai/github-actions/gate@2315aea999a4dc0d1643cdb635ea6308242e55df # main 2026-10-20
+      - uses: pyck-ai/github-actions/gate@5c7e27fd0a33a79314a433d00992a8d6e6e3264c # main 2026-10-21
         with:
           needs: ${{ toJSON(needs) }}
