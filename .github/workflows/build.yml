@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@5c7e27fd0a33a79314a433d00992a8d6e6e3264c # main 2026-10-21
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@872196b8e373e9e9a9d8a2144bbb179d60d21b56 # main 2026-11-03
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
