@@ -74,7 +74,7 @@ concurrency:
 
 jobs:
   tidy:
-    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@f8f8582b9bea936cac7325f44bb52c97d4261f3f # u/michael/runner-labels (pyck-ai/github-actions#103)
+    uses: pyck-ai/github-actions/.github/workflows/tidy-ghcr.yml@4b378c6b195b7ba94f76a5761cbdf89cd355cabd # u/michael/runner-labels (pyck-ai/github-actions#103)
     with:
       # Plain OR of two real booleans (never a `||` fallback on
       # `inputs.apply` itself) — see the module header's typing-hazard

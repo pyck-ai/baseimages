@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@f8f8582b9bea936cac7325f44bb52c97d4261f3f # u/michael/runner-labels (pyck-ai/github-actions#103)
+    uses: pyck-ai/github-actions/.github/workflows/build-image.yml@4b378c6b195b7ba94f76a5761cbdf89cd355cabd # u/michael/runner-labels (pyck-ai/github-actions#103)
     with:
       # Registry + namespace the bake file resolves build args against and
       # pushes to; this repo publishes to ghcr.io/pyck-ai/baseimages.
