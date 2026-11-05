@@ -21,9 +21,9 @@ permissions:
 
 jobs:
   ci:
-    # `self-hosted`, not `self-hosted-kata`: `bake --check` and the shellcheck
-    # container need docker, which the kata pool does not have.
-    runs-on: self-hosted
+    # `docker`: `bake --check` and the shellcheck container need the docker
+    # CLI, which talks to the rootless podman socket at $DOCKER_HOST.
+    runs-on: [pyck-ai, firecracker, light, docker]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,6 +31,9 @@ jobs:
         with:
           version: 3.x
           repo-token: ${{ github.token }}
+      # runner-init starts podman in the background; wait for its socket.
+      - name: Wait for podman
+        run: runner-init --wait podman 120
       - run: task ci
 
   # The check the org ruleset requires. It lives in this file, not in a
@@ -39,7 +42,7 @@ jobs:
     needs: [ci]
     if: always()
     permissions: {}
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, light]
     steps:
       - uses: pyck-ai/github-actions/gate@04c6f5cd724c6c65a2c2a613f4a97111bbf6347f # main 2026-10-15
         with:

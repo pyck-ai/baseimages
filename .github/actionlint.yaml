@@ -1,3 +1,11 @@
 self-hosted-runner:
   labels:
-    - self-hosted-kata
+    - pyck-ai
+    - firecracker
+    - light
+    - standard
+    - heavy
+    - docker
+    - buildkit
+    - nvme
+    - hicpu

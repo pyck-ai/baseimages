@@ -65,7 +65,7 @@ jobs:
     needs: [build]
     if: always()
     permissions: {}
-    runs-on: self-hosted-kata
+    runs-on: [pyck-ai, firecracker, light]
     steps:
       - uses: pyck-ai/github-actions/gate@5c7e27fd0a33a79314a433d00992a8d6e6e3264c # main 2026-10-21
         with:
