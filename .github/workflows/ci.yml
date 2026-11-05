@@ -23,7 +23,7 @@ jobs:
   ci:
     # `docker`: `bake --check` and the shellcheck container need the docker
     # CLI, which talks to the rootless podman socket at $DOCKER_HOST.
-    runs-on: [pyck-ai, firecracker, light, docker]
+    runs-on: [pyck-ai, firecracker, light, docker, buildkit]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,7 +34,20 @@ jobs:
       # runner-init starts podman in the background; wait for its socket.
       - name: Wait for podman
         run: runner-init --wait podman 120
+      # `bake --check` needs a buildx builder. buildx's default
+      # docker-container builder cannot start on rootless podman (its init
+      # needs a private PID namespace), so point buildx at the runner's own
+      # rootless BuildKit through the remote driver. BUILDX_BUILDER makes
+      # every buildx call in `task ci` use it; a laptop keeps its default.
+      - name: Set up buildx (the runner's rootless BuildKit)
+        run: |
+          runner-init --wait buildkit 180
+          docker buildx create --name ci --driver remote \
+            "${BUILDKIT_HOST:?runner-init is present but BUILDKIT_HOST is not set}"
+          docker buildx inspect ci --bootstrap
       - run: task ci
+        env:
+          BUILDX_BUILDER: ci
 
   # The check the org ruleset requires. It lives in this file, not in a
   # reusable workflow, so its name stays `ci-success`.
