@@ -41,7 +41,7 @@ Current version is pinned in [`buildargs.conf`](../../buildargs.conf) (`BUN_VERS
 
 | Tool | Binary | Alpine | Debian | Source |
 |------|--------|--------|--------|--------|
-| [Bun](https://bun.sh) | `bun` | ✅ | ✅ | GitHub release, `BUN_VERSION` |
+| [Bun](https://bun.sh) | `bun`, `bunx` | ✅ | ✅ | GitHub release, `BUN_VERSION`; `bunx` is a symlink to `bun`, as in bun's own installer and image |
 
 Bun runs TypeScript, JavaScript, JSX, and TSX files directly. This image does not create a `node` symlink to `bun` (the `agent` and `all-in-one` images do).
 

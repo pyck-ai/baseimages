@@ -31,5 +31,7 @@ ENV PATH="/bun/bin:${PATH}"
 
 RUN install -d -o nonroot -g nonroot /bun /bun/bin /bun/install /bun/install/global
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/
+# bun's installer and official image create this link; bun runs as `bun x` when started as bunx
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 WORKDIR /app

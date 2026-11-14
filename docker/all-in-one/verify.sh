@@ -84,10 +84,13 @@ else
     bad "PATH contains /bun/bin"
 fi
 
-check_cmd go gofmt dlv golangci-lint gotestsum go-arch-lint bun node pi claude opencode python python3 pip uv uvx ruff
+check_cmd go gofmt dlv golangci-lint gotestsum go-arch-lint bun bunx node pi claude opencode python python3 pip uv uvx ruff
 
 check_version "go version"         "go$GOLANG_VERSION"
 check_version "bun --version"      "$BUN_VERSION"
+check_version "bunx --version"     "$BUN_VERSION"
+# Only argv[0] == bunx selects `bun x`; the usage banner proves the mode.
+check_version "bunx"               "Usage: bunx"
 check_version "claude --version"   "$CLAUDE_VERSION"
 check_version "opencode --version" "$OPENCODE_VERSION"
 check_version "pi --version"       "$PI_VERSION"

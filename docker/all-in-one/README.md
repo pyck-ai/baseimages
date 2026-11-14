@@ -62,6 +62,7 @@ The complete developer-tooling set, each copied in from its dedicated image on t
 |------|--------|--------|--------|--------|
 | [Go](https://go.dev) toolchain (+ delve, golangci-lint, gotestsum, go-arch-lint) | `go`, `gofmt`, `dlv`, `golangci-lint`, `gotestsum`, `go-arch-lint` | ✅ | ✅ | Copied from the `golang` image; `GOLANG_VERSION` + per-tool versions in `buildargs.conf` |
 | [Bun](https://bun.sh) | `bun` | ✅ | ✅ | Binary copied from the `typescript` image, `BUN_VERSION` in `buildargs.conf` |
+| Package runner | `bunx` → `bun` | ✅ | ✅ | Symlink, as in bun's own installer and image; bun runs as `bun x` when started under this name |
 | Node compatibility | `node` → `bun` | ✅ | ✅ | Symlink so pi's `#!/usr/bin/env node` entrypoint runs under Bun |
 | [Claude Code](https://claude.ai/code) | `claude` | ✅ | ✅ | Binary copied from the `agent` image, `CLAUDE_VERSION` in `buildargs.conf` |
 | [opencode](https://opencode.ai) | `opencode` | ✅ | ✅ | Binary copied from the `agent` image, `OPENCODE_VERSION` in `buildargs.conf` |

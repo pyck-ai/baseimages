@@ -58,8 +58,11 @@ else
     bad "PATH contains /bun/bin"
 fi
 
-check_cmd bun
+check_cmd bun bunx
 check_version "bun --version" "$BUN_VERSION"
+check_version "bunx --version" "$BUN_VERSION"
+# Only argv[0] == bunx selects `bun x`; the usage banner proves the mode.
+check_version "bunx" "Usage: bunx"
 
 check_writable_as nonroot /bun /bun/bin /bun/install/global
 
