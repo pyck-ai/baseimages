@@ -84,7 +84,7 @@ else
     bad "PATH contains /bun/bin"
 fi
 
-check_cmd go gofmt dlv golangci-lint gotestsum go-arch-lint bun bunx node pi claude opencode python python3 pip uv uvx ruff
+check_cmd go gofmt dlv golangci-lint gotestsum go-arch-lint bun bunx node pi claude opencode python python3 pip uv uvx ruff ghalint gitleaks
 
 check_version "go version"         "go$GOLANG_VERSION"
 check_version "bun --version"      "$BUN_VERSION"
@@ -97,19 +97,28 @@ check_version "pi --version"       "$PI_VERSION"
 check_version "python --version"   "$PYTHON_VERSION"
 check_version "uv --version"       "$UV_VERSION"
 check_version "ruff --version"     "$RUFF_VERSION"
+check_version "ghalint --version"  "version $GHALINT_VERSION"
+check_version "gitleaks version"   "$GITLEAKS_VERSION"
 
-# rover ships glibc binaries only, so it is Debian-only; assert both sides of
-# the split so this cannot silently drift.
+# rover and zizmor ship glibc binaries only, so they are Debian-only; assert
+# both sides of the split so this cannot silently drift.
 case "$TARGET" in
     *-debian)
         check_cmd rover
         check_version "rover --version" "$ROVER_VERSION"
+        check_cmd zizmor
+        check_version "zizmor --version" "$ZIZMOR_VERSION"
         ;;
     *-alpine)
         if ! command -v rover >/dev/null 2>&1; then
             ok "rover absent on alpine"
         else
             bad "rover absent on alpine"
+        fi
+        if ! command -v zizmor >/dev/null 2>&1; then
+            ok "zizmor absent on alpine"
+        else
+            bad "zizmor absent on alpine"
         fi
         ;;
 esac

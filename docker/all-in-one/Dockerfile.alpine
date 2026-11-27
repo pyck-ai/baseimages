@@ -1,7 +1,52 @@
 # syntax=docker/dockerfile:1
 
+#===============================================================================
+# DOWNLOADS
+#===============================================================================
+
+# The CI checkers that pyck-ai repositories run in `task ci` (ghalint,
+# gitleaks, zizmor). Here rather than fetched per CI run: pyck-ai/github-runner
+# builds on this image, so every runner job has them on PATH.
+#
+# ghalint checks GitHub Actions workflows (timeouts, permissions, pinned
+# actions). A static Go binary, so one release archive serves Alpine and Debian.
+FROM base AS ghalint
+ARG TARGETPLATFORM TARGETARCH GHALINT_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GHALINT_VERSION}"\
+    --platform-arch "linux/amd64=amd64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/suzuki-shunsuke/ghalint/releases/download/v{version}/ghalint_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/suzuki-shunsuke/ghalint/releases/download/v{version}/ghalint_{version}_checksums.txt"\
+    --install-paths "ghalint"\
+    --install-to "/usr/local/bin/"\
+    --verify "ghalint --version | grep -qF 'version {version}'"
+
+# gitleaks scans a repository and its history for committed secrets. Static
+# Go binary, as above.
+FROM base AS gitleaks
+ARG TARGETPLATFORM TARGETARCH GITLEAKS_VERSION
+RUN --mount=type=cache,id=downloads,target=/var/cache/downloads,sharing=shared\
+    download.sh\
+    --var "version=${GITLEAKS_VERSION}"\
+    --platform-arch "linux/amd64=x64"\
+    --platform-arch "linux/arm64=arm64"\
+    --url "https://github.com/gitleaks/gitleaks/releases/download/v{version}/gitleaks_{version}_linux_{arch}.tar.gz"\
+    --checksum-url "https://github.com/gitleaks/gitleaks/releases/download/v{version}/gitleaks_{version}_checksums.txt"\
+    --install-paths "gitleaks"\
+    --install-to "/usr/local/bin/"\
+    --verify "gitleaks version | grep -qF '{version}'"
+
+#===============================================================================
+# RESULT
+#===============================================================================
+
 FROM base
 USER root
+
+COPY --from=ghalint /usr/local/bin/ghalint /usr/local/bin/
+COPY --from=gitleaks /usr/local/bin/gitleaks /usr/local/bin/
 
 #===============================================================================
 # GOLANG

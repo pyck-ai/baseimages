@@ -54,7 +54,7 @@ The Debian variant also tags by Rover version:
 
 ## What is included
 
-The complete developer-tooling set, each copied in from its dedicated image on top of the `base` image (`golang`, `typescript`, `agent`, `python`, and on Debian also `rover`) rather than inherited through a parent image. `rover` is Debian-only, so it is the only tool absent from the Alpine variant.
+The complete developer-tooling set, each copied in from its dedicated image on top of the `base` image (`golang`, `typescript`, `agent`, `python`, and on Debian also `rover`) rather than inherited through a parent image. `rover` and `zizmor` are Debian-only, so they are the only tools absent from the Alpine variant. The CI checkers `ghalint`, `gitleaks` and `zizmor` are downloaded directly from their releases, because pyck-ai/github-runner builds on this image and its jobs run them in `task ci`.
 
 ### Tools
 
@@ -69,10 +69,13 @@ The complete developer-tooling set, each copied in from its dedicated image on t
 | [pi](https://github.com/earendil-works/pi) | `pi` | ✅ | ✅ | Its own `bun add -g` install (see [Notes](#notes)), `PI_VERSION` in `buildargs.conf` |
 | [Rover](https://www.apollographql.com/docs/rover/) | `rover` | ❌ ¹ | ✅ | Binary copied from the `rover` image, `ROVER_VERSION` in `buildargs.conf` |
 | [Python](https://www.python.org) (+ [uv](https://github.com/astral-sh/uv), [Ruff](https://github.com/astral-sh/ruff)) | `python`, `uv`, `uvx`, `ruff` | ✅ | ✅ | Copied from the `python` image, `PYTHON_VERSION` / `UV_VERSION` / `RUFF_VERSION` in `buildargs.conf` |
+| [ghalint](https://github.com/suzuki-shunsuke/ghalint) | `ghalint` | ✅ | ✅ | GitHub release, `GHALINT_VERSION` in `buildargs.conf`; checks GitHub Actions workflows, here because pyck-ai/github-runner builds on this image |
+| [gitleaks](https://github.com/gitleaks/gitleaks) | `gitleaks` | ✅ | ✅ | GitHub release, `GITLEAKS_VERSION` in `buildargs.conf`; scans for committed secrets, here for the same reason |
+| [zizmor](https://docs.zizmor.sh) | `zizmor` | ❌ ¹ | ✅ | GitHub release, `ZIZMOR_VERSION` in `buildargs.conf`; checks GitHub Actions workflows for security problems, here for the same reason |
 
 Go, Bun, Claude Code, opencode, pi, and Python are present in both variants (on Alpine, Claude Code runs via the `posix_getdents` shim — see [Notes](#notes)).
 
-> ¹ Rover only publishes glibc binaries, so it is absent from the Alpine (musl) variant.
+> ¹ Rover and zizmor only publish glibc binaries, so they are absent from the Alpine (musl) variant.
 
 See the [base README](../base/README.md) for the inherited base toolset and environment, and each tool's own image README — [`golang`](../golang/README.md), [`typescript`](../typescript/README.md), [`agent`](../agent/README.md), [`python`](../python/README.md), and [`rover`](../rover/README.md) — for tool-specific details.
 
